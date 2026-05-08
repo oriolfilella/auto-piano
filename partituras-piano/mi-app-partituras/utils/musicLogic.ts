@@ -2,11 +2,13 @@
 
 // --- Modifica el tipo ---
 export type NoteData = {
-  keys: string[]; // <-- CAMBIO: ahora es un array de strings
+  keys: string[];
   duration: string;
   clef: "treble" | "bass";
   isDotted?: boolean;
   manualTie?: boolean;
+  tieNext?: boolean;
+  originalIndex?: number; // <--- AÑADE ESTA LÍNEA
 };
 
 export const signatureConfig: Record<
