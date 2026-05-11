@@ -8,7 +8,7 @@ export type NoteData = {
   isDotted?: boolean;
   manualTie?: boolean;
   tieNext?: boolean;
-  originalIndex?: number; // <--- AÑADE ESTA LÍNEA
+  originalIndex?: number;
 };
 
 export const signatureConfig: Record<
@@ -18,6 +18,29 @@ export const signatureConfig: Record<
   "4/4": { numBeats: 4, beatValue: 4, capacity: 4 },
   "3/4": { numBeats: 3, beatValue: 4, capacity: 3 },
   "2/2": { numBeats: 2, beatValue: 2, capacity: 2 },
+};
+
+export const parseTimeSignature = (sig: string) => {
+  // 1. Si es uno de los básicos (4/4, 3/4), usamos el que ya tenías
+  const predefined = signatureConfig[sig];
+  if (predefined) return predefined;
+
+  // 2. Si es uno inventado (ej. 7/8), separamos los números
+  const parts = sig.split("/");
+  const numBeats = parseInt(parts[0], 10);
+  const beatValue = parseInt(parts[1], 10);
+
+  // 3. Sistema de seguridad: Si está incompleto, usamos 4/4 temporalmente
+  if (isNaN(numBeats) || isNaN(beatValue) || beatValue === 0) {
+    return { numBeats: 4, beatValue: 4, capacity: 4 };
+  }
+
+  // 4. Calculamos la capacidad real matemática
+  return {
+    numBeats,
+    beatValue,
+    capacity: numBeats * (4 / beatValue),
+  };
 };
 
 export const getBeats = (duration: string, isDotted?: boolean): number => {
@@ -53,7 +76,7 @@ export const calculateMeasures = (
   clefNotes: NoteData[],
   timeSignature: string,
 ) => {
-  const config = signatureConfig[timeSignature];
+  const config = parseTimeSignature(timeSignature);
   const measures: (NoteData & { tieNext?: boolean })[][] = [];
   let currentMeasure: (NoteData & { tieNext?: boolean })[] = [];
   let currentBeats = 0;
