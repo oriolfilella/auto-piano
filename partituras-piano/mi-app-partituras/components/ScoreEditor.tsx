@@ -1,7 +1,7 @@
 // src/components/ScoreEditor.tsx
 "use client";
 import { useState, useEffect } from "react";
-import { NoteData } from "../utils/musicLogic";
+import { NoteData, getBeats } from "../utils/musicLogic";
 import VexFlowRenderer from "./VexFlowRender";
 import { supabase } from "../utils/superbaseClient";
 import { Sidebar } from "./Sidebar";
@@ -26,8 +26,9 @@ export default function ScoreEditor() {
   const [title, setTitle] = useState<string>("");
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [savedScores, setSavedScores] = useState<any[]>([]);
-  const [keySignature, setKeySignature] = useState<string>("C"); // "C" es Do Mayor (sin alteraciones)
+  const [keySignature, setKeySignature] = useState<string>("C");
   const [activeVoice, setActiveVoice] = useState<number>(1);
+
   // --- LÓGICA DE DATOS ---
   const fetchScores = async () => {
     const { data, error } = await supabase
@@ -49,8 +50,8 @@ export default function ScoreEditor() {
       {
         title: title,
         content: notesList,
-        time_signature: timeSignature, // 🔥 GUARDAMOS EL COMPÁS
-        key_signature: keySignature, // 🔥 GUARDAMOS LA ARMADURA
+        time_signature: timeSignature,
+        key_signature: keySignature,
       },
     ]);
 
@@ -63,6 +64,7 @@ export default function ScoreEditor() {
     }
     setIsSaving(false);
   };
+
   // --- FUNCIONES DE EDICIÓN ---
   const updateSelectedNoteProperty = (
     updater: (note: NoteData) => NoteData,
@@ -74,25 +76,15 @@ export default function ScoreEditor() {
   };
 
   const changeRowOctave = (rowIndex: number, delta: number) => {
-    // 1. Calculamos la nueva octava (mínimo 1, máximo 7)
     const newOct = Math.max(1, Math.min(7, rowOctaves[rowIndex] + delta));
-
-    // 2. Actualizamos la fila correspondiente
     const newOctaves = [...rowOctaves];
     newOctaves[rowIndex] = newOct;
     setRowOctaves(newOctaves);
-
-    // 🔥 ¡Magia! Hemos borrado toda la parte que modificaba la nota seleccionada.
-    // Ahora estos botones solo sirven para preparar la octava de las notas futuras.
   };
+
   const toggleAccidental = (targetAcc: "#" | "b") => {
-    // 1. Calculamos si el usuario está activando o desactivando el botón
     const newAcc = accidental === targetAcc ? "none" : targetAcc;
-
-    // 2. Guardamos ese estado para las próximas notas que escriba
     setAccidental(newAcc);
-
-    // 🔥 ¡Listo! Hemos borrado todo el código que modificaba la nota seleccionada.
   };
 
   const handleArticulationChange = (newArt: string) => {
@@ -105,14 +97,96 @@ export default function ScoreEditor() {
     }
   };
 
+  // 🔥 FUNCIÓN MÁGICA: Sincroniza la voz actual con el progreso de la partitura
+  const syncVoicePointer = (
+    targetVoice: number,
+    targetBeatPosition?: number,
+  ) => {
+    const currentVoiceNotes = notesList.filter(
+      (n) => (n.voice || 1) === targetVoice && n.clef === activeClef,
+    );
+
+    let currentVoiceBeats = 0;
+    currentVoiceNotes.forEach((n) => {
+      currentVoiceBeats += getBeats(n.duration, n.isDotted);
+    });
+
+    let goalBeats = targetBeatPosition || 0;
+
+    if (!targetBeatPosition) {
+      const otherVoiceNotes = notesList.filter(
+        (n) => (n.voice || 1) !== targetVoice && n.clef === activeClef,
+      );
+      otherVoiceNotes.forEach((n) => {
+        goalBeats += getBeats(n.duration, n.isDotted);
+      });
+    }
+
+    if (currentVoiceBeats < goalBeats) {
+      let remaining = goalBeats - currentVoiceBeats;
+      const newRests: NoteData[] = [];
+      const restKey = activeClef === "treble" ? "b/4" : "d/3";
+
+      while (remaining >= 1) {
+        newRests.push({
+          keys: [restKey],
+          duration: "qr",
+          clef: activeClef,
+          voice: targetVoice,
+          isInvisible: true,
+        });
+        remaining -= 1;
+      }
+      if (remaining >= 0.5) {
+        newRests.push({
+          keys: [restKey],
+          duration: "8r",
+          clef: activeClef,
+          voice: targetVoice,
+          isInvisible: true,
+        });
+      }
+
+      if (newRests.length > 0) {
+        setNotesList((prev) => [...prev, ...newRests]);
+      }
+    }
+  };
+
+  // 🔥 NUEVA FUNCIÓN: Maneja el cambio de voz e invoca la sincronización
+  const handleVoiceChange = (newVoice: number) => {
+    let targetBeat = 0;
+
+    // Si hay una nota seleccionada, calculamos su posición exacta en tiempos
+    if (selectedNoteIndex !== null) {
+      const selectedNote = notesList[selectedNoteIndex];
+      const sameClefNotes = notesList.filter(
+        (n) =>
+          n.clef === selectedNote.clef &&
+          (n.voice || 1) === (selectedNote.voice || 1),
+      );
+
+      for (let n of sameClefNotes) {
+        if (n === selectedNote) break;
+        targetBeat += getBeats(n.duration, n.isDotted);
+      }
+
+      // Importante: Al cambiar de voz, deseleccionamos la nota para no editar la Voz 1 por error
+      setSelectedNoteIndex(null);
+      setSelectedKeyIndex(null);
+    }
+
+    setActiveVoice(newVoice);
+    syncVoicePointer(newVoice, targetBeat);
+  };
+
   const addSpecificNote = (noteKey: string, rowIndex: number) => {
-    const octaveToUse = rowOctaves[rowIndex]; // Cogemos la octava de la fila pulsada
+    const octaveToUse = rowOctaves[rowIndex];
     const keyToUse =
       accidental === "none"
         ? `${noteKey}/${octaveToUse}`
         : `${noteKey}${accidental}/${octaveToUse}`;
 
-    // CASO 1: Hay una nota o acorde seleccionado en el lienzo
     if (selectedNoteIndex !== null) {
       updateSelectedNoteProperty((note) => {
         const newDuration = note.duration.replace("r", "");
@@ -146,7 +220,6 @@ export default function ScoreEditor() {
       return;
     }
 
-    // CASO 2: NO hay nada seleccionado (Añadir al final)
     const lastNote = notesList[notesList.length - 1];
 
     if (
@@ -191,44 +264,37 @@ export default function ScoreEditor() {
   };
 
   const undoLastNote = () => {
-    // CASO 1: Hay una nota o parte de un acorde seleccionado
     if (selectedNoteIndex !== null) {
       const noteToEdit = notesList[selectedNoteIndex];
       const newList = [...notesList];
 
-      // ¿Está seleccionada una nota individual dentro de un acorde de varias notas?
       if (
         selectedKeyIndex !== null &&
         selectedKeyIndex !== -1 &&
         noteToEdit.keys.length > 1
       ) {
-        // Eliminamos solo esa nota del acorde, dejando el resto intacto
         const newKeys = [...noteToEdit.keys];
         newKeys.splice(selectedKeyIndex, 1);
         newList[selectedNoteIndex] = { ...noteToEdit, keys: newKeys };
       } else {
-        // Se seleccionó toda la nota/acorde, o solo quedaba una nota.
-        // -> La convertimos en un silencio equivalente
         const restKey = noteToEdit.clef === "treble" ? "b/4" : "d/3";
         const newRest: NoteData = {
           keys: [restKey],
-          duration: noteToEdit.duration.replace("r", "") + "r", // Asegura que sea silencio
+          duration: noteToEdit.duration.replace("r", "") + "r",
           clef: noteToEdit.clef,
           isDotted: noteToEdit.isDotted,
           manualTie: false,
+          voice: noteToEdit.voice || 1,
         };
 
         newList[selectedNoteIndex] = newRest;
 
-        // Si la nota anterior estaba ligada a esta, rompemos la ligadura
         if (selectedNoteIndex > 0) {
           const prevIndex = selectedNoteIndex - 1;
           if (newList[prevIndex]) {
             newList[prevIndex] = { ...newList[prevIndex], manualTie: false };
           }
         }
-
-        // Al convertir a silencio, quitamos la selección de la "cabeza" de nota
         setSelectedKeyIndex(null);
       }
 
@@ -236,41 +302,37 @@ export default function ScoreEditor() {
       return;
     }
 
-    // CASO 2: Comportamiento normal de "Deshacer" (sin seleccionar nada en el lienzo)
     if (notesList.length === 0) return;
 
     const newList = [...notesList];
-    const lastIndex = newList.length - 1;
-    const lastNote = newList[lastIndex];
 
-    // ✨ NUEVO: Verificamos si la última nota es un acorde (tiene más de 1 tecla) y no es un silencio
+    let lastVoiceIndex = -1;
+    for (let i = newList.length - 1; i >= 0; i--) {
+      if ((newList[i].voice || 1) === activeVoice) {
+        lastVoiceIndex = i;
+        break;
+      }
+    }
+
+    if (lastVoiceIndex === -1) return;
+
+    const lastNote = newList[lastVoiceIndex];
+
     if (lastNote.keys.length > 1 && !lastNote.duration.includes("r")) {
-      // Si es un acorde, simplemente eliminamos la última tecla de su lista
-      // (Como las notas se ordenan al crearse, esto quitará la nota más alta del acorde)
       const newKeys = lastNote.keys.slice(0, -1);
-      newList[lastIndex] = { ...lastNote, keys: newKeys };
+      newList[lastVoiceIndex] = { ...lastNote, keys: newKeys };
       setNotesList(newList);
     } else {
-      // Si no es un acorde (es una sola nota o un silencio), borramos la nota entera
-      const shortenedList = newList.slice(0, -1);
-      if (shortenedList.length > 0) {
-        shortenedList[shortenedList.length - 1] = {
-          ...shortenedList[shortenedList.length - 1],
-          manualTie: false,
-        };
-      }
-      setNotesList(shortenedList);
+      newList.splice(lastVoiceIndex, 1);
+      setNotesList(newList);
     }
   };
 
   const addRest = () => {
-    // 🔥 CORRECCIÓN: Usamos la fila del medio (rowOctaves[1]) como octava predeterminada para el silencio
-    // Si la clave es de Fa, le restamos 1 a la octava para que el silencio se dibuje más abajo
     const defaultOctave = rowOctaves[1];
     const restKey =
       activeClef === "treble" ? `b/${defaultOctave}` : `d/${defaultOctave - 1}`;
 
-    // Si hay una nota seleccionada, la reemplazamos por el silencio
     if (selectedNoteIndex !== null) {
       updateSelectedNoteProperty((note) => ({
         ...note,
@@ -281,7 +343,6 @@ export default function ScoreEditor() {
       return;
     }
 
-    // Añadir silencio al final
     setNotesList([
       ...notesList,
       {
@@ -300,21 +361,15 @@ export default function ScoreEditor() {
       <Sidebar
         savedScores={savedScores}
         onLoadScore={(s) => {
-          // Cargamos notas y título
           setNotesList(s.content);
           setTitle(s.title);
-
-          // 🔥 CARGAMOS CONFIGURACIÓN (Si la canción es antigua y no tiene, usamos los de por defecto)
           setTimeSignature(s.time_signature || "4/4");
           setKeySignature(s.key_signature || "C");
-
-          // Limpiamos la selección
           setSelectedNoteIndex(null);
         }}
       />
 
       <div className="flex-1 flex flex-col gap-4 w-full">
-        {/* 🔥 AQUÍ PONEMOS EL TÍTULO (Este bloque NO es pegajoso) */}
         <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-blue-50 p-4 rounded-2xl border border-blue-100 shadow-sm">
           <input
             type="text"
@@ -332,14 +387,12 @@ export default function ScoreEditor() {
           </button>
         </div>
 
-        {/* Panel de Herramientas (Este SÍ es pegajoso) */}
         <ControlPanel
           {...{
-            // Fíjate que aquí ya no le pasamos el title ni el saveScore
             activeClef,
             setActiveClef,
             activeVoice,
-            setActiveVoice,
+            setActiveVoice: handleVoiceChange, // 🔥 Usamos handleVoiceChange en lugar de setActiveVoice
             rowOctaves,
             changeRowOctave,
             currentDuration,
@@ -355,7 +408,7 @@ export default function ScoreEditor() {
             addSpecificNote,
             addRest,
             undoLastNote,
-            articulation, // 🔥 Añade esto
+            articulation,
             setArticulation: handleArticulationChange,
             clearAll: () => {
               setNotesList([]);

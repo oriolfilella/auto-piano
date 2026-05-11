@@ -11,6 +11,7 @@ export type NoteData = {
   originalIndex?: number;
   articulation?: string;
   voice?: number;
+  isInvisible?: boolean;
 };
 export const signatureConfig: Record<
   string,
