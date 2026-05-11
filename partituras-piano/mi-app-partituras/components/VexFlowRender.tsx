@@ -12,6 +12,7 @@ import {
   Dot,
   Accidental,
   Beam, // ✨ Barras de corcheas
+  Articulation,
 } from "vexflow";
 import {
   NoteData,
@@ -111,8 +112,16 @@ export default function VexFlowRenderer({
               vNote.addModifier(new Accidental(symbol), index);
             }
           });
+          if (note.articulation && note.articulation !== "none") {
+            vNote.addModifier(
+              new Articulation(note.articulation).setPosition(3),
+              0,
+            );
+            // setPosition(3) fuerza a que el símbolo se dibuje arriba de la nota
+          }
 
           if (note.isDotted) vNote.addModifier(new Dot(), 0);
+
           vexNotesArray.push({
             vNote,
             tieNext: note.tieNext,

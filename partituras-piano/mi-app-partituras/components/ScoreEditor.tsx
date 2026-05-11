@@ -16,12 +16,12 @@ export default function ScoreEditor() {
   const [isDotActive, setIsDotActive] = useState<boolean>(false);
   const [isTieActive, setIsTieActive] = useState<boolean>(false);
   const [isChordMode, setIsChordMode] = useState<boolean>(false);
-
+  const [articulation, setArticulation] = useState<string>("none");
   const [selectedNoteIndex, setSelectedNoteIndex] = useState<number | null>(
     null,
   );
   const [selectedKeyIndex, setSelectedKeyIndex] = useState<number | null>(null);
-  const [currentOctave, setCurrentOctave] = useState<number>(4);
+  const [rowOctaves, setRowOctaves] = useState<number[]>([5, 4, 3]);
   const [accidental, setAccidental] = useState<"none" | "#" | "b">("none");
   const [title, setTitle] = useState<string>("");
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -64,26 +64,18 @@ export default function ScoreEditor() {
     setNotesList(updatedList);
   };
 
-  const changeOctave = (delta: number) => {
-    const newOct = Math.max(1, Math.min(7, currentOctave + delta));
-    setCurrentOctave(newOct);
-    if (selectedNoteIndex !== null) {
-      updateSelectedNoteProperty((note) => ({
-        ...note,
-        keys: note.keys.map((k, index) => {
-          if (
-            selectedKeyIndex !== null &&
-            selectedKeyIndex !== -1 &&
-            index !== selectedKeyIndex
-          ) {
-            return k;
-          }
-          return `${k.split("/")[0]}/${newOct}`;
-        }),
-      }));
-    }
-  };
+  const changeRowOctave = (rowIndex: number, delta: number) => {
+    // 1. Calculamos la nueva octava (mínimo 1, máximo 7)
+    const newOct = Math.max(1, Math.min(7, rowOctaves[rowIndex] + delta));
 
+    // 2. Actualizamos la fila correspondiente
+    const newOctaves = [...rowOctaves];
+    newOctaves[rowIndex] = newOct;
+    setRowOctaves(newOctaves);
+
+    // 🔥 ¡Magia! Hemos borrado toda la parte que modificaba la nota seleccionada.
+    // Ahora estos botones solo sirven para preparar la octava de las notas futuras.
+  };
   const toggleAccidental = (targetAcc: "#" | "b") => {
     const newAcc = accidental === targetAcc ? "none" : targetAcc;
     setAccidental(newAcc);
@@ -108,8 +100,18 @@ export default function ScoreEditor() {
     }
   };
 
-  const addSpecificNote = (noteKey: string, nextOctave?: boolean) => {
-    const octaveToUse = nextOctave ? currentOctave + 1 : currentOctave;
+  const handleArticulationChange = (newArt: string) => {
+    setArticulation(newArt);
+    if (selectedNoteIndex !== null) {
+      updateSelectedNoteProperty((note) => ({
+        ...note,
+        articulation: newArt === "none" ? undefined : newArt,
+      }));
+    }
+  };
+
+  const addSpecificNote = (noteKey: string, rowIndex: number) => {
+    const octaveToUse = rowOctaves[rowIndex]; // Cogemos la octava de la fila pulsada
     const keyToUse =
       accidental === "none"
         ? `${noteKey}/${octaveToUse}`
@@ -175,6 +177,7 @@ export default function ScoreEditor() {
         clef: activeClef,
         isDotted: isDotActive,
         manualTie: false,
+        articulation: articulation === "none" ? undefined : articulation,
       };
 
       if (isTieActive && notesList.length > 0) {
@@ -264,8 +267,11 @@ export default function ScoreEditor() {
   };
 
   const addRest = () => {
+    // 🔥 CORRECCIÓN: Usamos la fila del medio (rowOctaves[1]) como octava predeterminada para el silencio
+    // Si la clave es de Fa, le restamos 1 a la octava para que el silencio se dibuje más abajo
+    const defaultOctave = rowOctaves[1];
     const restKey =
-      activeClef === "treble" ? `b/${currentOctave}` : `d/${currentOctave - 1}`;
+      activeClef === "treble" ? `b/${defaultOctave}` : `d/${defaultOctave - 1}`;
 
     // Si hay una nota seleccionada, la reemplazamos por el silencio
     if (selectedNoteIndex !== null) {
@@ -303,18 +309,32 @@ export default function ScoreEditor() {
       />
 
       <div className="flex-1 flex flex-col gap-4 w-full">
+        {/* 🔥 AQUÍ PONEMOS EL TÍTULO (Este bloque NO es pegajoso) */}
+        <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-blue-50 p-4 rounded-2xl border border-blue-100 shadow-sm">
+          <input
+            type="text"
+            placeholder="Título de la obra..."
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            className="px-4 py-2 w-full sm:flex-1 rounded-xl border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold text-gray-800 text-lg"
+          />
+          <button
+            onClick={saveScore}
+            disabled={isSaving}
+            className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all shadow-md disabled:bg-blue-300 flex items-center justify-center gap-2"
+          >
+            {isSaving ? "⏳ Guardando..." : "💾 Guardar"}
+          </button>
+        </div>
+
+        {/* Panel de Herramientas (Este SÍ es pegajoso) */}
         <ControlPanel
           {...{
-            title,
-            setTitle,
-            timeSignature,
-            setTimeSignature,
-            saveScore,
-            isSaving,
+            // Fíjate que aquí ya no le pasamos el title ni el saveScore
             activeClef,
             setActiveClef,
-            currentOctave,
-            changeOctave,
+            rowOctaves,
+            changeRowOctave,
             currentDuration,
             setDurationAndEdit: (d) => setCurrentDuration(d),
             isDotActive,
@@ -328,11 +348,15 @@ export default function ScoreEditor() {
             addSpecificNote,
             addRest,
             undoLastNote,
+            articulation, // 🔥 Añade esto
+            setArticulation: handleArticulationChange,
             clearAll: () => {
               setNotesList([]);
               setSelectedNoteIndex(null);
             },
             selectedNoteIndex,
+            timeSignature,
+            setTimeSignature,
             keySignature,
             setKeySignature,
           }}
@@ -342,7 +366,7 @@ export default function ScoreEditor() {
           <VexFlowRenderer
             notesList={notesList}
             timeSignature={timeSignature}
-            keySignature={keySignature} // <-- Nueva prop
+            keySignature={keySignature}
             selectedNoteIndex={selectedNoteIndex}
             selectedKeyIndex={selectedKeyIndex}
             onNoteClick={(noteIdx, keyIdx) => {

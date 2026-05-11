@@ -9,8 +9,8 @@ export type NoteData = {
   manualTie?: boolean;
   tieNext?: boolean;
   originalIndex?: number;
+  articulation?: string;
 };
-
 export const signatureConfig: Record<
   string,
   { numBeats: number; beatValue: number; capacity: number }
@@ -45,7 +45,15 @@ export const parseTimeSignature = (sig: string) => {
 
 export const getBeats = (duration: string, isDotted?: boolean): number => {
   const pureDuration = duration.replace("r", "");
-  const map: Record<string, number> = { w: 4, h: 2, q: 1, "8": 0.5 };
+  // 🔥 Añadidas las semicorcheas (16) y fusas (32)
+  const map: Record<string, number> = {
+    w: 4,
+    h: 2,
+    q: 1,
+    "8": 0.5,
+    "16": 0.25,
+    "32": 0.125,
+  };
   const baseBeats = map[pureDuration] || 1;
   return isDotted ? baseBeats * 1.5 : baseBeats;
 };
@@ -53,8 +61,12 @@ export const getBeats = (duration: string, isDotted?: boolean): number => {
 export const getDurations = (beats: number): string[] => {
   let remaining = beats;
   const durations: string[] = [];
-  while (remaining >= 0.5) {
-    remaining = Math.round(remaining * 100) / 100;
+
+  // 🔥 Bajamos el límite a 0.125 para que entre al bucle con las fusas
+  while (remaining >= 0.125) {
+    // Redondeamos a 3 decimales para evitar bugs de precisión de JavaScript con fracciones pequeñas
+    remaining = Math.round(remaining * 1000) / 1000;
+
     if (remaining >= 4) {
       durations.push("w");
       remaining -= 4;
@@ -67,6 +79,17 @@ export const getDurations = (beats: number): string[] => {
     } else if (remaining >= 0.5) {
       durations.push("8");
       remaining -= 0.5;
+    } else if (remaining >= 0.25) {
+      // 🔥 Nueva lógica para semicorchea
+      durations.push("16");
+      remaining -= 0.25;
+    } else if (remaining >= 0.125) {
+      // 🔥 Nueva lógica para fusa
+      durations.push("32");
+      remaining -= 0.125;
+    } else {
+      // Salimos de seguridad si queda algo microscópico
+      break;
     }
   }
   return durations;
