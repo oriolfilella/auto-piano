@@ -5,6 +5,10 @@ import React, { useState } from "react";
 interface ControlPanelProps {
   activeClef: "treble" | "bass";
   setActiveClef: (c: "treble" | "bass") => void;
+
+  activeVoice: number; // 🔥 NUEVO
+  setActiveVoice: (v: number) => void; // 🔥 NUEVO
+
   rowOctaves: number[];
   changeRowOctave: (rowIndex: number, delta: number) => void;
   addSpecificNote: (key: string, rowIndex: number) => void;
@@ -45,7 +49,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
 
   return (
     <div className="bg-white p-4 md:p-6 rounded-2xl shadow-xl border border-gray-100 flex flex-col text-gray-900 sticky top-4 z-50 transition-all">
-      {/* CABECERA DESPLEGABLE */}
       <div
         className="flex justify-between items-center cursor-pointer select-none"
         onClick={() => setIsExpanded(!isExpanded)}
@@ -58,7 +61,6 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
         </button>
       </div>
 
-      {/* CONTENIDO */}
       {isExpanded && (
         <div className="flex flex-col gap-4 mt-4 pt-4 border-t border-gray-100 animate-fade-in">
           <div className="flex flex-wrap justify-between items-center gap-4 border-b border-gray-100 pb-4">
@@ -75,6 +77,22 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
                   className={`px-3 md:px-4 py-2 rounded-lg font-bold transition-all ${props.activeClef === "bass" ? "bg-white text-purple-600 shadow" : "text-gray-500"}`}
                 >
                   𝄢 Fa
+                </button>
+              </div>
+
+              {/* 🔥 NUEVO: Selector de Voces */}
+              <div className="flex bg-gray-100 p-1 rounded-xl">
+                <button
+                  onClick={() => props.setActiveVoice(1)}
+                  className={`px-3 md:px-4 py-2 rounded-lg font-bold transition-all ${props.activeVoice === 1 ? "bg-white text-indigo-600 shadow" : "text-gray-500"}`}
+                >
+                  1️⃣ Voz 1
+                </button>
+                <button
+                  onClick={() => props.setActiveVoice(2)}
+                  className={`px-3 md:px-4 py-2 rounded-lg font-bold transition-all ${props.activeVoice === 2 ? "bg-white text-emerald-600 shadow" : "text-gray-500"}`}
+                >
+                  2️⃣ Voz 2
                 </button>
               </div>
 
@@ -98,37 +116,51 @@ export const ControlPanel: React.FC<ControlPanelProps> = (props) => {
                 <select
                   value={props.keySignature}
                   onChange={(e) => props.setKeySignature(e.target.value)}
-                  className="bg-white border border-purple-200 rounded-lg font-bold text-purple-800 text-xs p-1"
+                  className="bg-white border border-purple-200 rounded-lg font-bold text-purple-800 text-xs p-1 focus:ring-2 focus:ring-purple-400 focus:outline-none"
                 >
-                  <option value="C">Do May / La min</option>
-                  <option value="G">Sol May (1#)</option>
-                  <option value="D">Re May (2#)</option>
-                  <option value="A">La May (3#)</option>
-                  <option value="E">Mi May (4#)</option>
-                  <option value="F">Fa May (1b)</option>
-                  <option value="Bb">Si b May (2b)</option>
-                  <option value="Eb">Mi b May (3b)</option>
+                  <option value="C" className="font-bold">
+                    Do May / La min (0)
+                  </option>
+                  <optgroup label="Sostenidos (♯)">
+                    <option value="G">Sol May / Mi min (1♯)</option>
+                    <option value="D">Re May / Si min (2♯)</option>
+                    <option value="A">La May / Fa♯ min (3♯)</option>
+                    <option value="E">Mi May / Do♯ min (4♯)</option>
+                    <option value="B">Si May / Sol♯ min (5♯)</option>
+                    <option value="F#">Fa♯ May / Re♯ min (6♯)</option>
+                    <option value="C#">Do♯ May / La♯ min (7♯)</option>
+                  </optgroup>
+                  <optgroup label="Bemoles (♭)">
+                    <option value="F">Fa May / Re min (1♭)</option>
+                    <option value="Bb">Si♭ May / Sol min (2♭)</option>
+                    <option value="Eb">Mi♭ May / Do min (3♭)</option>
+                    <option value="Ab">La♭ May / Fa min (4♭)</option>
+                    <option value="Db">Re♭ May / Si♭ min (5♭)</option>
+                    <option value="Gb">Sol♭ May / Mi♭ min (6♭)</option>
+                    <option value="Cb">Do♭ May / La♭ min (7♭)</option>
+                  </optgroup>
+                </select>
+              </div>
+
+              <div className="flex items-center gap-2 bg-teal-50 px-3 py-1 rounded-xl border border-teal-100">
+                <span className="text-[10px] font-bold text-teal-700 uppercase">
+                  Articulación
+                </span>
+                <select
+                  value={props.articulation}
+                  onChange={(e) => props.setArticulation(e.target.value)}
+                  className="bg-white border border-teal-200 rounded-lg font-bold text-teal-800 text-xs p-1 focus:ring-2 focus:ring-teal-400 focus:outline-none"
+                >
+                  <option value="none">Normal (Sin art.)</option>
+                  <option value="a.">Staccato (.)</option>
+                  <option value="a>">Acento (&gt;)</option>
+                  <option value="a^">Marcato (^)</option>
+                  <option value="a-">Tenuto (-)</option>
+                  <option value="a@a">Calderón (𝄐)</option>
                 </select>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-teal-50 px-3 py-1 rounded-xl border border-teal-100">
-              <span className="text-[10px] font-bold text-teal-700 uppercase">
-                Articulación
-              </span>
-              <select
-                value={props.articulation}
-                onChange={(e) => props.setArticulation(e.target.value)}
-                className="bg-white border border-teal-200 rounded-lg font-bold text-teal-800 text-xs p-1 focus:ring-2 focus:ring-teal-400 focus:outline-none"
-              >
-                <option value="none">Normal (Sin art.)</option>
-                <option value="a.">Staccato (.)</option>
-                <option value="a>">Acento (&gt;)</option>
-                <option value="a^">Marcato (^)</option>
-                <option value="a-">Tenuto (-)</option>
-                <option value="a@a">Calderón (𝄐)</option>
-              </select>
-            </div>
             <div className="flex flex-wrap items-center gap-1.5 md:gap-2">
               {["w", "h", "q", "8", "16", "32"].map((dur) => (
                 <button

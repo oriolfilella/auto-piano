@@ -10,6 +10,7 @@ export type NoteData = {
   tieNext?: boolean;
   originalIndex?: number;
   articulation?: string;
+  voice?: number;
 };
 export const signatureConfig: Record<
   string,

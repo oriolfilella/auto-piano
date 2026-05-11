@@ -27,7 +27,7 @@ export default function ScoreEditor() {
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [savedScores, setSavedScores] = useState<any[]>([]);
   const [keySignature, setKeySignature] = useState<string>("C"); // "C" es Do Mayor (sin alteraciones)
-
+  const [activeVoice, setActiveVoice] = useState<number>(1);
   // --- LÓGICA DE DATOS ---
   const fetchScores = async () => {
     const { data, error } = await supabase
@@ -44,16 +44,25 @@ export default function ScoreEditor() {
   const saveScore = async () => {
     if (!title) return alert("⚠️ Ponle un título.");
     setIsSaving(true);
-    const { error } = await supabase
-      .from("scores")
-      .insert([{ title, content: notesList }]);
+
+    const { error } = await supabase.from("scores").insert([
+      {
+        title: title,
+        content: notesList,
+        time_signature: timeSignature, // 🔥 GUARDAMOS EL COMPÁS
+        key_signature: keySignature, // 🔥 GUARDAMOS LA ARMADURA
+      },
+    ]);
+
     if (!error) {
-      alert("✅ Guardado!");
+      alert("✅ ¡Guardado con éxito!");
       fetchScores();
+    } else {
+      console.error("Error guardando:", error);
+      alert("❌ Hubo un error al guardar.");
     }
     setIsSaving(false);
   };
-
   // --- FUNCIONES DE EDICIÓN ---
   const updateSelectedNoteProperty = (
     updater: (note: NoteData) => NoteData,
@@ -77,27 +86,13 @@ export default function ScoreEditor() {
     // Ahora estos botones solo sirven para preparar la octava de las notas futuras.
   };
   const toggleAccidental = (targetAcc: "#" | "b") => {
+    // 1. Calculamos si el usuario está activando o desactivando el botón
     const newAcc = accidental === targetAcc ? "none" : targetAcc;
+
+    // 2. Guardamos ese estado para las próximas notas que escriba
     setAccidental(newAcc);
-    if (selectedNoteIndex !== null) {
-      updateSelectedNoteProperty((note) => ({
-        ...note,
-        keys: note.keys.map((k, index) => {
-          if (
-            selectedKeyIndex !== null &&
-            selectedKeyIndex !== -1 &&
-            index !== selectedKeyIndex
-          ) {
-            return k;
-          }
-          const [notePitch, oct] = k.split("/");
-          const pureKey = notePitch.charAt(0);
-          return newAcc === "none"
-            ? `${pureKey}/${oct}`
-            : `${pureKey}${newAcc}/${oct}`;
-        }),
-      }));
-    }
+
+    // 🔥 ¡Listo! Hemos borrado todo el código que modificaba la nota seleccionada.
   };
 
   const handleArticulationChange = (newArt: string) => {
@@ -159,6 +154,7 @@ export default function ScoreEditor() {
       lastNote &&
       lastNote.duration === currentDuration &&
       lastNote.clef === activeClef &&
+      (lastNote.voice || 1) === activeVoice &&
       !lastNote.duration.includes("r")
     ) {
       if (lastNote.keys.includes(keyToUse)) return;
@@ -178,6 +174,7 @@ export default function ScoreEditor() {
         isDotted: isDotActive,
         manualTie: false,
         articulation: articulation === "none" ? undefined : articulation,
+        voice: activeVoice,
       };
 
       if (isTieActive && notesList.length > 0) {
@@ -293,6 +290,7 @@ export default function ScoreEditor() {
         clef: activeClef,
         isDotted: isDotActive,
         manualTie: false,
+        voice: activeVoice,
       },
     ]);
   };
@@ -302,8 +300,15 @@ export default function ScoreEditor() {
       <Sidebar
         savedScores={savedScores}
         onLoadScore={(s) => {
+          // Cargamos notas y título
           setNotesList(s.content);
           setTitle(s.title);
+
+          // 🔥 CARGAMOS CONFIGURACIÓN (Si la canción es antigua y no tiene, usamos los de por defecto)
+          setTimeSignature(s.time_signature || "4/4");
+          setKeySignature(s.key_signature || "C");
+
+          // Limpiamos la selección
           setSelectedNoteIndex(null);
         }}
       />
@@ -333,6 +338,8 @@ export default function ScoreEditor() {
             // Fíjate que aquí ya no le pasamos el title ni el saveScore
             activeClef,
             setActiveClef,
+            activeVoice,
+            setActiveVoice,
             rowOctaves,
             changeRowOctave,
             currentDuration,
