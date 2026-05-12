@@ -12,7 +12,13 @@ export type NoteData = {
   articulation?: string;
   voice?: number;
   isInvisible?: boolean;
+  hasEndRepeat?: boolean;
+  isTriplet?: boolean;
+  textAnnotation?: string;
+  dynamic?: string;
+  pedal?: "start" | "stop";
 };
+
 export const signatureConfig: Record<
   string,
   { numBeats: number; beatValue: number; capacity: number }
@@ -45,19 +51,27 @@ export const parseTimeSignature = (sig: string) => {
   };
 };
 
-export const getBeats = (duration: string, isDotted?: boolean): number => {
-  const pureDuration = duration.replace("r", "");
-  // 🔥 Añadidas las semicorcheas (16) y fusas (32)
-  const map: Record<string, number> = {
-    w: 4,
-    h: 2,
-    q: 1,
-    "8": 0.5,
-    "16": 0.25,
-    "32": 0.125,
-  };
-  const baseBeats = map[pureDuration] || 1;
-  return isDotted ? baseBeats * 1.5 : baseBeats;
+export const getBeats = (
+  duration: string,
+  isDotted: boolean = false,
+  isTriplet: boolean = false,
+) => {
+  let beats = 0;
+  const baseDur = duration.replace("r", "").replace("d", "");
+
+  if (baseDur === "w") beats = 4;
+  else if (baseDur === "h") beats = 2;
+  else if (baseDur === "q") beats = 1;
+  else if (baseDur === "8") beats = 0.5;
+  else if (baseDur === "16") beats = 0.25;
+  else if (baseDur === "32") beats = 0.125;
+
+  if (isDotted) beats *= 1.5;
+
+  // ✨ MAGIA MATEMÁTICA: Si es un tresillo, vale 2/3 de su valor normal
+  if (isTriplet) beats *= 2 / 3;
+
+  return beats;
 };
 
 export const getDurations = (beats: number): string[] => {
@@ -82,15 +96,12 @@ export const getDurations = (beats: number): string[] => {
       durations.push("8");
       remaining -= 0.5;
     } else if (remaining >= 0.25) {
-      // 🔥 Nueva lógica para semicorchea
       durations.push("16");
       remaining -= 0.25;
     } else if (remaining >= 0.125) {
-      // 🔥 Nueva lógica para fusa
       durations.push("32");
       remaining -= 0.125;
     } else {
-      // Salimos de seguridad si queda algo microscópico
       break;
     }
   }
@@ -108,7 +119,9 @@ export const calculateMeasures = (
 
   for (let j = 0; j < clefNotes.length; j++) {
     const note = clefNotes[j];
-    let noteBeats = getBeats(note.duration, note.isDotted);
+
+    // 🔥 CORRECCIÓN 1: Le pasamos note.isTriplet al calculador
+    let noteBeats = getBeats(note.duration, note.isDotted, note.isTriplet);
     const isRest = note.duration.includes("r");
 
     if (isRest) {
@@ -127,7 +140,9 @@ export const calculateMeasures = (
     }
 
     while (noteBeats > 0) {
-      const spaceLeft = config.capacity - currentBeats;
+      // Redondeamos para evitar el famoso error de 0.9999999 de JavaScript
+      const spaceLeft =
+        Math.round((config.capacity - currentBeats) * 1000) / 1000;
 
       if (spaceLeft <= 0) {
         measures.push(currentMeasure);
@@ -136,9 +151,11 @@ export const calculateMeasures = (
         continue;
       }
 
-      if (noteBeats <= spaceLeft) {
-        if (noteBeats === getBeats(note.duration, note.isDotted)) {
-          // NUEVO: Si la nota cabe intacta, miramos si el usuario forzó la ligadura
+      if (Math.round(noteBeats * 1000) / 1000 <= spaceLeft) {
+        // 🔥 CORRECCIÓN 2: Le pasamos note.isTriplet aquí también
+        if (
+          noteBeats === getBeats(note.duration, note.isDotted, note.isTriplet)
+        ) {
           currentMeasure.push({ ...note, tieNext: note.manualTie || false });
         } else {
           const chunks = getDurations(noteBeats);
@@ -147,7 +164,6 @@ export const calculateMeasures = (
               ...note,
               duration: chunkDur,
               isDotted: false,
-              // NUEVO: El último trocito de una nota subdividida hereda la ligadura manual
               tieNext: idx < chunks.length - 1 || note.manualTie || false,
             });
           });

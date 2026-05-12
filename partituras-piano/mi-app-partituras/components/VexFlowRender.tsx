@@ -14,6 +14,10 @@ import {
   Beam,
   Articulation,
   GhostNote,
+  Barline,
+  Tuplet,
+  Annotation, // 🔥 NUEVO: Para Textos y Dinámicas
+  PedalMarking, // 🔥 NUEVO: Para la línea del pedal
 } from "vexflow";
 import {
   NoteData,
@@ -53,13 +57,11 @@ export default function VexFlowRenderer({
     const MAX_LINE_WIDTH = 1200;
     const lineHeight = 220;
 
-    // Guardamos el índice original para que los clics funcionen
     const notesWithIndex = notesList.map((n, i) => ({
       ...n,
       originalIndex: i,
     }));
 
-    // 🔥 MAGIA: Separamos las listas por Clave y por Voz ANTES de calcular los compases
     const tNotesV1 = notesWithIndex.filter(
       (n) => n.clef === "treble" && (n.voice || 1) === 1,
     );
@@ -90,7 +92,6 @@ export default function VexFlowRenderer({
     let numLines = 1;
     const context = renderer.getContext();
 
-    // Arrays para guardar las notas y los empates (ties) por separado
     const allNotesForDOM: any[] = [];
     const allTiesV1: any[] = [];
     const allTiesV2: any[] = [];
@@ -105,38 +106,37 @@ export default function VexFlowRenderer({
 
       const voiceObjects: any[] = [];
       const beamsToDraw: any[] = [];
+      const tupletsToDraw: any[] = [];
 
-      // Procesamos cada capa (Voz 1 y Voz 2 en Sol y Fa)
       measureData.forEach((capa) => {
         if (capa.data.length === 0) return;
 
         const vexNotesArray: any[] = [];
         let currentBeats = 0;
+        let currentTripletGroup: any[] = [];
 
         const vexNotes = capa.data.map((note: any) => {
-          currentBeats += getBeats(note.duration, note.isDotted);
+          currentBeats += getBeats(
+            note.duration,
+            note.isDotted,
+            note.isTriplet,
+          );
 
           const durString = note.isDotted ? note.duration + "d" : note.duration;
           const stem_direction = capa.voiceNum === 2 ? -1 : 1;
 
           let vNote;
 
-          // 🔥 CONDICIÓN FANTASMA: Si la nota está marcada como invisible, creamos un GhostNote
           if (note.isInvisible) {
             vNote = new GhostNote({ duration: durString.replace("r", "") });
-
-            // Lo guardamos en el array básico para VexFlow, pero NO lo metemos en los arrays
-            // de clicks (allNotesForDOM) ni de ligaduras (allTies) porque es invisible.
             vexNotesArray.push({
               vNote,
               tieNext: false,
               originalIndex: note.originalIndex,
             });
-
             return vNote;
           }
 
-          // 🔥 SI ES UNA NOTA/SILENCIO NORMAL:
           vNote = new StaveNote({
             clef: capa.clef,
             keys: note.keys,
@@ -156,10 +156,10 @@ export default function VexFlowRenderer({
             }
           }
 
-          // 2. Alteraciones (Sostenidos y Bemoles)
+          // 2. Alteraciones
           note.keys.forEach((keyName: string, index: number) => {
             const symbol = keyName.split("/")[0].slice(1);
-            if (symbol === "#" || symbol === "b") {
+            if (symbol === "#" || symbol === "b" || symbol === "n") {
               vNote.addModifier(new Accidental(symbol), index);
             }
           });
@@ -176,23 +176,50 @@ export default function VexFlowRenderer({
           // 4. Puntillo
           if (note.isDotted) vNote.addModifier(new Dot(), 0);
 
-          // Lo guardamos en todos los arrays necesarios para interactuar con él
+          // ✨ NUEVO: 5. Texto Libre (Ej: Allegro) -> Se dibuja arriba
+          if (note.textAnnotation) {
+            vNote.addModifier(
+              new Annotation(note.textAnnotation)
+                .setFont("Arial", 11, "bold")
+                .setVerticalJustification(Annotation.VerticalJustify.TOP),
+              0,
+            );
+          }
+
+          // ✨ NUEVO: 6. Dinámicas (Ej: p, mf, f) -> Se dibujan abajo en cursiva
+          if (note.dynamic && note.dynamic !== "none") {
+            vNote.addModifier(
+              new Annotation(note.dynamic)
+                .setFont("Times New Roman", 14, "bold italic")
+                .setVerticalJustification(Annotation.VerticalJustify.BOTTOM),
+              0,
+            );
+          }
+
           const noteDataToSave = {
             vNote,
             tieNext: note.tieNext,
             originalIndex: note.originalIndex,
           };
-
           vexNotesArray.push(noteDataToSave);
           allNotesForDOM.push(noteDataToSave);
 
           if (capa.voiceNum === 1) allTiesV1.push(noteDataToSave);
           if (capa.voiceNum === 2) allTiesV2.push(noteDataToSave);
 
+          if (note.isTriplet && !note.isInvisible) {
+            currentTripletGroup.push(vNote);
+            if (currentTripletGroup.length === 3) {
+              tupletsToDraw.push(new Tuplet(currentTripletGroup));
+              currentTripletGroup = [];
+            }
+          } else {
+            currentTripletGroup = [];
+          }
+
           return vNote;
         });
 
-        // ✨ MAGIA ANTI-ERRORES: Calcular espacio sobrante y rellenar el final con fantasmas extra
         const tickables: any[] = [...vexNotes];
         const spaceLeft =
           Math.round((config.capacity - currentBeats) * 1000) / 1000;
@@ -266,10 +293,30 @@ export default function VexFlowRenderer({
           .setContext(context)
           .draw();
       }
+
       new StaveConnector(trebleStave, bassStave)
         .setType(1)
         .setContext(context)
         .draw();
+
+      let isRepeatEnd = false;
+      measureData.forEach((capa) => {
+        if (capa.data.some((n: any) => n.hasEndRepeat)) {
+          isRepeatEnd = true;
+        }
+      });
+
+      if (i === totalMeasures - 1) {
+        trebleStave.setEndBarType(
+          isRepeatEnd ? Barline.type.REPEAT_END : Barline.type.END,
+        );
+        bassStave.setEndBarType(
+          isRepeatEnd ? Barline.type.REPEAT_END : Barline.type.END,
+        );
+      } else if (isRepeatEnd) {
+        trebleStave.setEndBarType(Barline.type.REPEAT_END);
+        bassStave.setEndBarType(Barline.type.REPEAT_END);
+      }
 
       trebleStave.setContext(context).draw();
       bassStave.setContext(context).draw();
@@ -281,6 +328,7 @@ export default function VexFlowRenderer({
           if (vObj.clef === "bass") vObj.voice.draw(context, bassStave);
         });
         beamsToDraw.forEach((b) => b.setContext(context).draw());
+        tupletsToDraw.forEach((t) => t.setContext(context).draw());
       }
 
       currentX += measureWidth;
@@ -304,6 +352,31 @@ export default function VexFlowRenderer({
     };
     drawTies(allTiesV1);
     drawTies(allTiesV2);
+
+    // ✨ NUEVO: Dibujamos la línea del Pedal
+    const drawPedals = () => {
+      let currentStart: any = null;
+
+      // Ordenamos las notas por su índice original para asegurar el orden temporal exacto
+      const sortedNotes = [...allNotesForDOM].sort(
+        (a, b) => a.originalIndex - b.originalIndex,
+      );
+
+      sortedNotes.forEach((item) => {
+        const noteData = notesList[item.originalIndex];
+        if (!noteData) return;
+
+        if (noteData.pedal === "start") {
+          currentStart = item.vNote;
+        } else if (noteData.pedal === "stop" && currentStart) {
+          // Si encontramos un inicio y un final, VexFlow traza la línea automáticamente
+          const pedal = new PedalMarking([currentStart, item.vNote]);
+          pedal.setContext(context).draw();
+          currentStart = null; // Reiniciamos para el siguiente pedal
+        }
+      });
+    };
+    drawPedals();
 
     renderer.resize(MAX_LINE_WIDTH + 50, numLines * lineHeight + 50);
 

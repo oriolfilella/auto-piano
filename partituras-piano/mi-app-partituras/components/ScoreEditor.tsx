@@ -4,11 +4,9 @@ import { useState, useEffect } from "react";
 import { NoteData, getBeats } from "../utils/musicLogic";
 import VexFlowRenderer from "./VexFlowRender";
 import { supabase } from "../utils/superbaseClient";
-import { Sidebar } from "./Sidebar";
 import { ControlPanel } from "./ControlPanel";
 
 export default function ScoreEditor() {
-  // --- ESTADOS ---
   const [notesList, setNotesList] = useState<NoteData[]>([]);
   const [currentDuration, setCurrentDuration] = useState<string>("q");
   const [timeSignature, setTimeSignature] = useState<string>("4/4");
@@ -22,14 +20,19 @@ export default function ScoreEditor() {
   );
   const [selectedKeyIndex, setSelectedKeyIndex] = useState<number | null>(null);
   const [rowOctaves, setRowOctaves] = useState<number[]>([5, 4, 3]);
-  const [accidental, setAccidental] = useState<"none" | "#" | "b">("none");
+  const [accidental, setAccidental] = useState<"none" | "#" | "b" | "n">(
+    "none",
+  );
   const [title, setTitle] = useState<string>("");
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [savedScores, setSavedScores] = useState<any[]>([]);
   const [keySignature, setKeySignature] = useState<string>("C");
   const [activeVoice, setActiveVoice] = useState<number>(1);
+  const [isTripletActive, setIsTripletActive] = useState<boolean>(false);
 
-  // --- LÓGICA DE DATOS ---
+  const [dynamic, setDynamic] = useState<string>("none");
+  const [textAnnotation, setTextAnnotation] = useState<string>("");
+
   const fetchScores = async () => {
     const { data, error } = await supabase
       .from("scores")
@@ -42,19 +45,41 @@ export default function ScoreEditor() {
     fetchScores();
   }, []);
 
+  const handleLoadScore = (scoreId: string) => {
+    const score = savedScores.find((s) => s.id.toString() === scoreId);
+    if (score) {
+      setNotesList(score.content);
+      setTitle(score.title);
+      setTimeSignature(score.time_signature || "4/4");
+      setKeySignature(score.key_signature || "C");
+      setSelectedNoteIndex(null);
+    }
+  };
+
+  useEffect(() => {
+    if (selectedNoteIndex !== null && notesList[selectedNoteIndex]) {
+      const note = notesList[selectedNoteIndex];
+      setArticulation(note.articulation || "none");
+      setDynamic(note.dynamic || "none");
+      setTextAnnotation(note.textAnnotation || "");
+    } else {
+      setArticulation("none");
+      setDynamic("none");
+      setTextAnnotation("");
+    }
+  }, [selectedNoteIndex, notesList]);
+
   const saveScore = async () => {
     if (!title) return alert("⚠️ Ponle un título.");
     setIsSaving(true);
-
     const { error } = await supabase.from("scores").insert([
       {
-        title: title,
+        title,
         content: notesList,
         time_signature: timeSignature,
         key_signature: keySignature,
       },
     ]);
-
     if (!error) {
       alert("✅ ¡Guardado con éxito!");
       fetchScores();
@@ -65,7 +90,6 @@ export default function ScoreEditor() {
     setIsSaving(false);
   };
 
-  // --- FUNCIONES DE EDICIÓN ---
   const updateSelectedNoteProperty = (
     updater: (note: NoteData) => NoteData,
   ) => {
@@ -82,22 +106,69 @@ export default function ScoreEditor() {
     setRowOctaves(newOctaves);
   };
 
-  const toggleAccidental = (targetAcc: "#" | "b") => {
-    const newAcc = accidental === targetAcc ? "none" : targetAcc;
-    setAccidental(newAcc);
+  const toggleAccidental = (targetAcc: "#" | "b" | "n") => {
+    setAccidental(accidental === targetAcc ? "none" : targetAcc);
+  };
+
+  const isRepeatActive =
+    selectedNoteIndex !== null
+      ? !!notesList[selectedNoteIndex].hasEndRepeat
+      : false;
+
+  const toggleRepeat = () => {
+    if (selectedNoteIndex !== null) {
+      updateSelectedNoteProperty((note) => ({
+        ...note,
+        hasEndRepeat: !note.hasEndRepeat,
+      }));
+    } else {
+      alert(
+        "⚠️ Selecciona una nota en el pentagrama para poner la barra de repetición al final de su compás.",
+      );
+    }
   };
 
   const handleArticulationChange = (newArt: string) => {
     setArticulation(newArt);
-    if (selectedNoteIndex !== null) {
+    if (selectedNoteIndex !== null)
       updateSelectedNoteProperty((note) => ({
         ...note,
         articulation: newArt === "none" ? undefined : newArt,
       }));
+  };
+
+  const handleDynamicChange = (newDyn: string) => {
+    setDynamic(newDyn);
+    if (selectedNoteIndex !== null)
+      updateSelectedNoteProperty((note) => ({
+        ...note,
+        dynamic: newDyn === "none" ? undefined : newDyn,
+      }));
+  };
+
+  const handleApplyText = () => {
+    if (selectedNoteIndex !== null) {
+      updateSelectedNoteProperty((note) => ({
+        ...note,
+        textAnnotation:
+          textAnnotation.trim() === "" ? undefined : textAnnotation.trim(),
+      }));
+    } else {
+      alert("⚠️ Selecciona una nota para añadirle texto.");
     }
   };
 
-  // 🔥 FUNCIÓN MÁGICA: Sincroniza la voz actual con el progreso de la partitura
+  const togglePedal = (type: "start" | "stop") => {
+    if (selectedNoteIndex !== null) {
+      updateSelectedNoteProperty((note) => ({
+        ...note,
+        pedal: note.pedal === type ? undefined : type,
+      }));
+    } else {
+      alert("⚠️ Selecciona una nota para marcar el inicio o fin del pedal.");
+    }
+  };
+
   const syncVoicePointer = (
     targetVoice: number,
     targetBeatPosition?: number,
@@ -105,20 +176,18 @@ export default function ScoreEditor() {
     const currentVoiceNotes = notesList.filter(
       (n) => (n.voice || 1) === targetVoice && n.clef === activeClef,
     );
-
     let currentVoiceBeats = 0;
     currentVoiceNotes.forEach((n) => {
-      currentVoiceBeats += getBeats(n.duration, n.isDotted);
+      currentVoiceBeats += getBeats(n.duration, n.isDotted, n.isTriplet);
     });
 
     let goalBeats = targetBeatPosition || 0;
-
     if (!targetBeatPosition) {
       const otherVoiceNotes = notesList.filter(
         (n) => (n.voice || 1) !== targetVoice && n.clef === activeClef,
       );
       otherVoiceNotes.forEach((n) => {
-        goalBeats += getBeats(n.duration, n.isDotted);
+        goalBeats += getBeats(n.duration, n.isDotted, n.isTriplet);
       });
     }
 
@@ -146,18 +215,12 @@ export default function ScoreEditor() {
           isInvisible: true,
         });
       }
-
-      if (newRests.length > 0) {
-        setNotesList((prev) => [...prev, ...newRests]);
-      }
+      if (newRests.length > 0) setNotesList((prev) => [...prev, ...newRests]);
     }
   };
 
-  // 🔥 NUEVA FUNCIÓN: Maneja el cambio de voz e invoca la sincronización
   const handleVoiceChange = (newVoice: number) => {
     let targetBeat = 0;
-
-    // Si hay una nota seleccionada, calculamos su posición exacta en tiempos
     if (selectedNoteIndex !== null) {
       const selectedNote = notesList[selectedNoteIndex];
       const sameClefNotes = notesList.filter(
@@ -165,17 +228,13 @@ export default function ScoreEditor() {
           n.clef === selectedNote.clef &&
           (n.voice || 1) === (selectedNote.voice || 1),
       );
-
       for (let n of sameClefNotes) {
         if (n === selectedNote) break;
-        targetBeat += getBeats(n.duration, n.isDotted);
+        targetBeat += getBeats(n.duration, n.isDotted, n.isTriplet);
       }
-
-      // Importante: Al cambiar de voz, deseleccionamos la nota para no editar la Voz 1 por error
       setSelectedNoteIndex(null);
       setSelectedKeyIndex(null);
     }
-
     setActiveVoice(newVoice);
     syncVoicePointer(newVoice, targetBeat);
   };
@@ -190,7 +249,6 @@ export default function ScoreEditor() {
     if (selectedNoteIndex !== null) {
       updateSelectedNoteProperty((note) => {
         const newDuration = note.duration.replace("r", "");
-
         if (isChordMode && !note.duration.includes("r")) {
           if (note.keys.includes(keyToUse)) return note;
           return {
@@ -199,7 +257,6 @@ export default function ScoreEditor() {
             duration: newDuration,
           };
         }
-
         if (
           !isChordMode &&
           selectedKeyIndex !== null &&
@@ -209,7 +266,6 @@ export default function ScoreEditor() {
           newKeys[selectedKeyIndex] = keyToUse;
           return { ...note, keys: newKeys.sort(), duration: newDuration };
         }
-
         return {
           ...note,
           keys: [keyToUse],
@@ -221,7 +277,6 @@ export default function ScoreEditor() {
     }
 
     const lastNote = notesList[notesList.length - 1];
-
     if (
       isChordMode &&
       lastNote &&
@@ -231,7 +286,6 @@ export default function ScoreEditor() {
       !lastNote.duration.includes("r")
     ) {
       if (lastNote.keys.includes(keyToUse)) return;
-
       const updatedList = [...notesList];
       const lastIndex = updatedList.length - 1;
       updatedList[lastIndex] = {
@@ -248,8 +302,8 @@ export default function ScoreEditor() {
         manualTie: false,
         articulation: articulation === "none" ? undefined : articulation,
         voice: activeVoice,
+        isTriplet: isTripletActive,
       };
-
       if (isTieActive && notesList.length > 0) {
         const updatedList = [...notesList];
         updatedList[updatedList.length - 1] = {
@@ -267,7 +321,6 @@ export default function ScoreEditor() {
     if (selectedNoteIndex !== null) {
       const noteToEdit = notesList[selectedNoteIndex];
       const newList = [...notesList];
-
       if (
         selectedKeyIndex !== null &&
         selectedKeyIndex !== -1 &&
@@ -278,7 +331,7 @@ export default function ScoreEditor() {
         newList[selectedNoteIndex] = { ...noteToEdit, keys: newKeys };
       } else {
         const restKey = noteToEdit.clef === "treble" ? "b/4" : "d/3";
-        const newRest: NoteData = {
+        newList[selectedNoteIndex] = {
           keys: [restKey],
           duration: noteToEdit.duration.replace("r", "") + "r",
           clef: noteToEdit.clef,
@@ -286,26 +339,19 @@ export default function ScoreEditor() {
           manualTie: false,
           voice: noteToEdit.voice || 1,
         };
-
-        newList[selectedNoteIndex] = newRest;
-
-        if (selectedNoteIndex > 0) {
-          const prevIndex = selectedNoteIndex - 1;
-          if (newList[prevIndex]) {
-            newList[prevIndex] = { ...newList[prevIndex], manualTie: false };
-          }
-        }
+        if (selectedNoteIndex > 0 && newList[selectedNoteIndex - 1])
+          newList[selectedNoteIndex - 1] = {
+            ...newList[selectedNoteIndex - 1],
+            manualTie: false,
+          };
         setSelectedKeyIndex(null);
       }
-
       setNotesList(newList);
       return;
     }
 
     if (notesList.length === 0) return;
-
     const newList = [...notesList];
-
     let lastVoiceIndex = -1;
     for (let i = newList.length - 1; i >= 0; i--) {
       if ((newList[i].voice || 1) === activeVoice) {
@@ -313,26 +359,23 @@ export default function ScoreEditor() {
         break;
       }
     }
-
     if (lastVoiceIndex === -1) return;
-
     const lastNote = newList[lastVoiceIndex];
-
     if (lastNote.keys.length > 1 && !lastNote.duration.includes("r")) {
-      const newKeys = lastNote.keys.slice(0, -1);
-      newList[lastVoiceIndex] = { ...lastNote, keys: newKeys };
-      setNotesList(newList);
+      newList[lastVoiceIndex] = {
+        ...lastNote,
+        keys: lastNote.keys.slice(0, -1),
+      };
     } else {
       newList.splice(lastVoiceIndex, 1);
-      setNotesList(newList);
     }
+    setNotesList(newList);
   };
 
   const addRest = () => {
     const defaultOctave = rowOctaves[1];
     const restKey =
       activeClef === "treble" ? `b/${defaultOctave}` : `d/${defaultOctave - 1}`;
-
     if (selectedNoteIndex !== null) {
       updateSelectedNoteProperty((note) => ({
         ...note,
@@ -342,7 +385,6 @@ export default function ScoreEditor() {
       setSelectedKeyIndex(null);
       return;
     }
-
     setNotesList([
       ...notesList,
       {
@@ -352,88 +394,194 @@ export default function ScoreEditor() {
         isDotted: isDotActive,
         manualTie: false,
         voice: activeVoice,
+        isTriplet: isTripletActive,
       },
     ]);
   };
 
   return (
-    <div className="flex flex-col lg:flex-row gap-4 p-2 md:p-6 bg-gray-50 min-h-screen items-start">
-      <Sidebar
-        savedScores={savedScores}
-        onLoadScore={(s) => {
-          setNotesList(s.content);
-          setTitle(s.title);
-          setTimeSignature(s.time_signature || "4/4");
-          setKeySignature(s.key_signature || "C");
-          setSelectedNoteIndex(null);
-        }}
-      />
+    <div className="flex flex-col gap-4 p-2 md:p-6 bg-gray-100 min-h-screen">
+      {/* 1. TOP BAR: Obras, Título y Guardar */}
+      <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-gray-200 shadow-sm w-full">
+        <select
+          className="px-4 py-2.5 rounded-xl border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-500 font-bold text-gray-700 bg-blue-50 w-full sm:w-auto cursor-pointer outline-none"
+          onChange={(e) => handleLoadScore(e.target.value)}
+          defaultValue=""
+        >
+          <option value="" disabled>
+            📂 Abrir Obra Guardada...
+          </option>
+          {savedScores.map((score) => (
+            <option key={score.id} value={score.id}>
+              {score.title || "Sin título"} -{" "}
+              {new Date(score.created_at).toLocaleDateString()}
+            </option>
+          ))}
+        </select>
 
-      <div className="flex-1 flex flex-col gap-4 w-full">
-        <div className="flex flex-col sm:flex-row justify-between items-center gap-3 bg-blue-50 p-4 rounded-2xl border border-blue-100 shadow-sm">
-          <input
-            type="text"
-            placeholder="Título de la obra..."
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            className="px-4 py-2 w-full sm:flex-1 rounded-xl border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold text-gray-800 text-lg"
-          />
-          <button
-            onClick={saveScore}
-            disabled={isSaving}
-            className="w-full sm:w-auto px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition-all shadow-md disabled:bg-blue-300 flex items-center justify-center gap-2"
-          >
-            {isSaving ? "⏳ Guardando..." : "💾 Guardar"}
-          </button>
-        </div>
-
-        <ControlPanel
-          {...{
-            activeClef,
-            setActiveClef,
-            activeVoice,
-            setActiveVoice: handleVoiceChange, // 🔥 Usamos handleVoiceChange en lugar de setActiveVoice
-            rowOctaves,
-            changeRowOctave,
-            currentDuration,
-            setDurationAndEdit: (d) => setCurrentDuration(d),
-            isDotActive,
-            toggleDot: () => setIsDotActive(!isDotActive),
-            isTieActive,
-            toggleTie: () => setIsTieActive(!isTieActive),
-            accidental,
-            toggleAccidental,
-            isChordMode,
-            setIsChordMode,
-            addSpecificNote,
-            addRest,
-            undoLastNote,
-            articulation,
-            setArticulation: handleArticulationChange,
-            clearAll: () => {
-              setNotesList([]);
-              setSelectedNoteIndex(null);
-            },
-            selectedNoteIndex,
-            timeSignature,
-            setTimeSignature,
-            keySignature,
-            setKeySignature,
-          }}
+        <input
+          type="text"
+          placeholder="Título de la obra..."
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          className="px-4 py-2.5 w-full sm:flex-1 rounded-xl border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold text-gray-800 text-lg text-center"
         />
 
-        <div className="bg-white p-4 md:p-10 rounded-3xl shadow-xl border border-gray-200 overflow-x-auto">
-          <VexFlowRenderer
-            notesList={notesList}
-            timeSignature={timeSignature}
-            keySignature={keySignature}
-            selectedNoteIndex={selectedNoteIndex}
-            selectedKeyIndex={selectedKeyIndex}
-            onNoteClick={(noteIdx, keyIdx) => {
-              setSelectedNoteIndex(noteIdx === -1 ? null : noteIdx);
-              setSelectedKeyIndex(keyIdx === -1 ? null : keyIdx);
+        <button
+          onClick={saveScore}
+          disabled={isSaving}
+          className="w-full sm:w-auto px-8 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition shadow-md disabled:bg-blue-300 flex items-center justify-center gap-2 flex-shrink-0"
+        >
+          {isSaving ? "⏳ Guardando..." : "💾 Guardar Obra"}
+        </button>
+      </div>
+
+      <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
+        {/* 🔥 PANEL LATERAL PEGAJOSO (Izquierda) */}
+        {/* Añadido: sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto */}
+        <div className="w-full lg:w-72 flex-shrink-0 bg-white p-4 rounded-2xl shadow-xl border border-gray-200 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar z-20">
+          <h2 className="text-xl font-extrabold text-gray-800 mb-4 pb-2 border-b border-gray-200 flex items-center gap-2">
+            🛠️ Configuración
+          </h2>
+          <ControlPanel
+            {...{
+              activeClef,
+              setActiveClef,
+              activeVoice,
+              setActiveVoice: handleVoiceChange,
+              currentDuration,
+              setDurationAndEdit: (d: string) => setCurrentDuration(d),
+              isDotActive,
+              toggleDot: () => setIsDotActive(!isDotActive),
+              isTieActive,
+              toggleTie: () => setIsTieActive(!isTieActive),
+              isTripletActive,
+              toggleTriplet: () => setIsTripletActive(!isTripletActive),
+              accidental,
+              toggleAccidental,
+              isChordMode,
+              setIsChordMode,
+              toggleRepeat,
+              isRepeatActive,
+              dynamic,
+              setDynamic: handleDynamicChange,
+              textAnnotation,
+              setTextAnnotation,
+              applyTextAnnotation: handleApplyText,
+              togglePedal,
+              articulation,
+              setArticulation: handleArticulationChange,
+              timeSignature,
+              setTimeSignature,
+              keySignature,
+              setKeySignature,
             }}
           />
+        </div>
+
+        {/* 3. ÁREA PRINCIPAL (Derecha) */}
+        <div className="flex-1 flex flex-col gap-4 w-full min-w-0">
+          {/* 🔥 TECLADO DE NOTAS PEGAJOSO (Arriba de la partitura) */}
+          {/* Añadido: sticky top-4 z-20 */}
+          <div className="bg-white p-4 md:p-6 rounded-2xl shadow-xl border border-gray-200 flex flex-col gap-4 w-full sticky top-4 z-20">
+            <div className="flex flex-col gap-3">
+              {rowOctaves.map((octave, rowIndex) => (
+                <div
+                  key={rowIndex}
+                  className="flex flex-col sm:flex-row items-center gap-3 w-full"
+                >
+                  {/* Etiqueta Octava */}
+                  <div className="flex items-center justify-between sm:justify-start gap-2 bg-orange-50 px-3 py-1.5 rounded-lg border border-orange-200 w-full sm:w-auto shrink-0">
+                    <span className="text-xs font-bold text-orange-700">
+                      OCTAVA
+                    </span>
+                    <button
+                      onClick={() => changeRowOctave(rowIndex, -1)}
+                      className="w-6 h-6 flex items-center justify-center bg-white rounded-full text-orange-600 font-bold border border-orange-300 hover:bg-orange-100 transition"
+                    >
+                      -
+                    </button>
+                    <span className="font-bold text-orange-900 w-4 text-center">
+                      {octave}
+                    </span>
+                    <button
+                      onClick={() => changeRowOctave(rowIndex, 1)}
+                      className="w-6 h-6 flex items-center justify-center bg-white rounded-full text-orange-600 font-bold border border-orange-300 hover:bg-orange-100 transition"
+                    >
+                      +
+                    </button>
+                  </div>
+
+                  {/* Notas Do Re Mi */}
+                  <div className="flex w-full gap-1.5 flex-wrap">
+                    {["c", "d", "e", "f", "g", "a", "b"].map(
+                      (noteKey, noteIndex) => {
+                        const labels = [
+                          "Do",
+                          "Re",
+                          "Mi",
+                          "Fa",
+                          "Sol",
+                          "La",
+                          "Si",
+                        ];
+                        return (
+                          <button
+                            key={noteKey}
+                            onClick={() => addSpecificNote(noteKey, rowIndex)}
+                            className="flex-1 min-w-[40px] py-2 bg-white border border-gray-300 rounded-lg shadow-sm font-bold text-gray-700 text-sm sm:text-base hover:bg-blue-50 hover:border-blue-400 hover:text-blue-700 transition-all focus:ring-2 focus:ring-blue-500"
+                          >
+                            {labels[noteIndex]}
+                          </button>
+                        );
+                      },
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+
+            {/* Acciones */}
+            <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-100">
+              <button
+                onClick={addRest}
+                className="flex-1 min-w-[120px] py-2.5 bg-gray-800 text-white font-bold rounded-xl shadow hover:bg-gray-900 transition flex items-center justify-center gap-2 text-sm"
+              >
+                𝄽 Silencio
+              </button>
+              <button
+                onClick={undoLastNote}
+                className="flex-1 min-w-[120px] py-2.5 bg-yellow-500 text-white font-bold rounded-xl shadow hover:bg-yellow-600 transition flex items-center justify-center gap-2 text-sm"
+              >
+                ↩️ Deshacer
+              </button>
+              <button
+                onClick={() => {
+                  setNotesList([]);
+                  setSelectedNoteIndex(null);
+                }}
+                className="flex-1 min-w-[120px] py-2.5 bg-red-500 text-white font-bold rounded-xl shadow hover:bg-red-600 transition flex items-center justify-center gap-2 text-sm"
+              >
+                🗑️ Limpiar Todo
+              </button>
+            </div>
+          </div>
+
+          {/* LIENZO DE LA PARTITURA */}
+          {/* Añadido z-0 para que se deslice por debajo de las herramientas al hacer scroll */}
+          <div className="bg-white p-4 md:p-10 rounded-3xl shadow-xl border border-gray-200 overflow-x-auto w-full z-0">
+            <VexFlowRenderer
+              notesList={notesList}
+              timeSignature={timeSignature}
+              keySignature={keySignature}
+              selectedNoteIndex={selectedNoteIndex}
+              selectedKeyIndex={selectedKeyIndex}
+              onNoteClick={(noteIdx, keyIdx) => {
+                setSelectedNoteIndex(noteIdx === -1 ? null : noteIdx);
+                setSelectedKeyIndex(keyIdx === -1 ? null : keyIdx);
+              }}
+            />
+          </div>
         </div>
       </div>
     </div>
