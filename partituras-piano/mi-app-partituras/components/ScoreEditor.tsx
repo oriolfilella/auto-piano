@@ -6,6 +6,8 @@ import VexFlowRenderer from "./VexFlowRender";
 import { supabase } from "../utils/superbaseClient";
 import { ControlPanel } from "./ControlPanel";
 
+import { translateToHardware } from "../utils/hardwareTranslator";
+
 export default function ScoreEditor() {
   const [notesList, setNotesList] = useState<NoteData[]>([]);
   const [currentDuration, setCurrentDuration] = useState<string>("q");
@@ -32,6 +34,9 @@ export default function ScoreEditor() {
 
   const [dynamic, setDynamic] = useState<string>("none");
   const [textAnnotation, setTextAnnotation] = useState<string>("");
+
+  // 🔥 NUEVO ESTADO PARA LOS BPM
+  const [bpm, setBpm] = useState<number>(60);
 
   const fetchScores = async () => {
     const { data, error } = await supabase
@@ -399,6 +404,24 @@ export default function ScoreEditor() {
     ]);
   };
 
+  // 🔥 LE PASAMOS EL ESTADO BPM A LA LÓGICA MATEMÁTICA
+  const handleDebugHardware = () => {
+    if (notesList.length === 0) return alert("⚠️ No hay notas.");
+
+    // Si el usuario borró el BPM y se quedó en 0, usamos 60 por defecto para evitar dividir por 0
+    const safeBpm = bpm > 0 ? bpm : 60;
+
+    const data = translateToHardware(notesList, safeBpm, keySignature);
+
+    console.log(`=== DATOS PARA PIANO AUTOMÁTICO (${safeBpm} BPM) ===`);
+    console.log("NOTAS:", data.notes);
+    console.log("PEDAL:", data.pedal);
+
+    alert(
+      `✅ Datos generados a ${safeBpm} BPM.\nRevisa la consola (F12) para ver los tiempos en milisegundos.`,
+    );
+  };
+
   return (
     <div className="flex flex-col gap-4 p-2 md:p-6 bg-gray-100 min-h-screen">
       {/* 1. TOP BAR: Obras, Título y Guardar */}
@@ -437,8 +460,7 @@ export default function ScoreEditor() {
       </div>
 
       <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
-        {/* 🔥 PANEL LATERAL PEGAJOSO (Izquierda) */}
-        {/* Añadido: sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto */}
+        {/* PANEL LATERAL DE CONFIGURACIÓN (Izquierda) */}
         <div className="w-full lg:w-72 flex-shrink-0 bg-white p-4 rounded-2xl shadow-xl border border-gray-200 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar z-20">
           <h2 className="text-xl font-extrabold text-gray-800 mb-4 pb-2 border-b border-gray-200 flex items-center gap-2">
             🛠️ Configuración
@@ -475,14 +497,19 @@ export default function ScoreEditor() {
               setTimeSignature,
               keySignature,
               setKeySignature,
+
+              // 🔥 PASAMOS EL NUEVO ESTADO DE BPM
+              bpm,
+              setBpm,
+
+              onDebugHardware: handleDebugHardware,
             }}
           />
         </div>
 
         {/* 3. ÁREA PRINCIPAL (Derecha) */}
         <div className="flex-1 flex flex-col gap-4 w-full min-w-0">
-          {/* 🔥 TECLADO DE NOTAS PEGAJOSO (Arriba de la partitura) */}
-          {/* Añadido: sticky top-4 z-20 */}
+          {/* TECLADO DE NOTAS PEGAJOSO (Arriba de la partitura) */}
           <div className="bg-white p-4 md:p-6 rounded-2xl shadow-xl border border-gray-200 flex flex-col gap-4 w-full sticky top-4 z-20">
             <div className="flex flex-col gap-3">
               {rowOctaves.map((octave, rowIndex) => (
@@ -568,7 +595,6 @@ export default function ScoreEditor() {
           </div>
 
           {/* LIENZO DE LA PARTITURA */}
-          {/* Añadido z-0 para que se deslice por debajo de las herramientas al hacer scroll */}
           <div className="bg-white p-4 md:p-10 rounded-3xl shadow-xl border border-gray-200 overflow-x-auto w-full z-0">
             <VexFlowRenderer
               notesList={notesList}

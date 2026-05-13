@@ -32,6 +32,10 @@ export interface ControlPanelProps {
   setTimeSignature: (ts: string) => void;
   keySignature: string;
   setKeySignature: (ks: string) => void;
+  // 🔥 NUEVOS PROPS PARA EL BPM
+  bpm: number;
+  setBpm: (bpm: number) => void;
+  onDebugHardware: () => void;
 }
 
 export const ControlPanel = (props: ControlPanelProps) => {
@@ -70,12 +74,12 @@ export const ControlPanel = (props: ControlPanelProps) => {
 
       {/* 2. AJUSTES GLOBALES */}
       <div className="flex flex-col gap-2 p-3 bg-gray-50 border border-gray-200 rounded-xl shadow-inner text-sm w-full">
-        <div className="grid grid-cols-2 gap-2">
+        {/* 🔥 AHORA ES UNA CUADRÍCULA DE 3 COLUMNAS PARA METER EL BPM */}
+        <div className="grid grid-cols-3 gap-2">
           <div className="flex flex-col bg-white p-2 rounded border border-gray-300 flex-1 min-w-0">
             <span className="font-bold text-[10px] text-gray-500 mb-1">
               COMPÁS
             </span>
-            {/* 🔥 AÑADIDO text-gray-900 */}
             <input
               type="text"
               value={props.timeSignature}
@@ -84,11 +88,24 @@ export const ControlPanel = (props: ControlPanelProps) => {
             />
           </div>
 
+          <div className="flex flex-col bg-white p-2 rounded border border-gray-300 flex-1 min-w-0">
+            <span className="font-bold text-[10px] text-gray-500 mb-1">
+              BPM
+            </span>
+            <input
+              type="number"
+              min="10"
+              max="300"
+              value={props.bpm}
+              onChange={(e) => props.setBpm(Number(e.target.value) || 0)}
+              className="w-full bg-transparent font-bold text-gray-900 outline-none text-sm"
+            />
+          </div>
+
           <div className="flex flex-col bg-white p-2 rounded border border-gray-300 overflow-hidden flex-1 min-w-0">
             <span className="font-bold text-[10px] text-gray-500 mb-1">
               TONALIDAD
             </span>
-            {/* 🔥 AÑADIDO text-gray-900 */}
             <select
               value={props.keySignature}
               onChange={(e) => props.setKeySignature(e.target.value)}
@@ -108,7 +125,6 @@ export const ControlPanel = (props: ControlPanelProps) => {
             <span className="font-bold text-[10px] text-gray-500 mb-1">
               ARTICULACIÓN
             </span>
-            {/* 🔥 AÑADIDO text-gray-900 */}
             <select
               value={props.articulation}
               onChange={(e) => props.setArticulation(e.target.value)}
@@ -126,7 +142,6 @@ export const ControlPanel = (props: ControlPanelProps) => {
             <span className="font-bold text-[10px] text-gray-500 mb-1">
               DINÁMICA
             </span>
-            {/* 🔥 AÑADIDO text-gray-900 */}
             <select
               value={props.dynamic}
               onChange={(e) => props.setDynamic(e.target.value)}
@@ -142,7 +157,6 @@ export const ControlPanel = (props: ControlPanelProps) => {
         </div>
 
         <div className="flex gap-2 mt-1">
-          {/* 🔥 AÑADIDO text-gray-900 */}
           <input
             type="text"
             placeholder="Ej: Allegro"
@@ -248,6 +262,16 @@ export const ControlPanel = (props: ControlPanelProps) => {
           className={`px-3 h-9 flex items-center justify-center rounded-lg border-2 font-bold text-xs shrink-0 ${props.isRepeatActive ? "border-red-500 bg-red-50 text-red-700" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
         >
           :|| Repetir
+        </button>
+      </div>
+
+      {/* 5. BOTÓN DE HARDWARE */}
+      <div className="pt-2 border-t border-gray-200">
+        <button
+          onClick={props.onDebugHardware}
+          className="w-full py-2 bg-purple-600 text-white font-bold rounded-lg shadow-sm hover:bg-purple-700 transition flex items-center justify-center gap-2 text-sm"
+        >
+          🖨️ Ver Código Hardware
         </button>
       </div>
     </div>

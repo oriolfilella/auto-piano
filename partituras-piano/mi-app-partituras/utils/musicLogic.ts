@@ -192,3 +192,16 @@ export const calculateMeasures = (
     measures.push(currentMeasure);
   return measures;
 };
+
+export const KEY_SIGNATURES: Record<string, Record<string, string>> = {
+  C: {},
+  G: { f: "#" },
+  D: { f: "#", c: "#" },
+  A: { f: "#", c: "#", g: "#" },
+  E: { f: "#", c: "#", g: "#", d: "#" },
+  F: { b: "b" },
+  Bb: { b: "b", e: "b" },
+  Eb: { b: "b", e: "b", a: "b" },
+  Ab: { b: "b", e: "b", a: "b", d: "b" },
+  // Puedes añadir más según necesites
+};
