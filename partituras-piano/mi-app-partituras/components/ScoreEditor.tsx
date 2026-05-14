@@ -1,12 +1,15 @@
 // src/components/ScoreEditor.tsx
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { NoteData, getBeats } from "../utils/musicLogic";
 import VexFlowRenderer from "./VexFlowRender";
 import { supabase } from "../utils/superbaseClient";
 import { ControlPanel } from "./ControlPanel";
 
 import { translateToHardware } from "../utils/hardwareTranslator";
+import { serialService } from "../utils/webSerialService";
+
+import { parseMusicXML } from "../utils/musicXMLParser";
 
 export default function ScoreEditor() {
   const [notesList, setNotesList] = useState<NoteData[]>([]);
@@ -35,8 +38,11 @@ export default function ScoreEditor() {
   const [dynamic, setDynamic] = useState<string>("none");
   const [textAnnotation, setTextAnnotation] = useState<string>("");
 
-  // 🔥 NUEVO ESTADO PARA LOS BPM
   const [bpm, setBpm] = useState<number>(60);
+
+  const [isConnected, setIsConnected] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const timeoutsRef = useRef<NodeJS.Timeout[]>([]);
 
   const fetchScores = async () => {
     const { data, error } = await supabase
@@ -73,6 +79,26 @@ export default function ScoreEditor() {
       setTextAnnotation("");
     }
   }, [selectedNoteIndex, notesList]);
+
+  const handleFileUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const xmlText = e.target?.result as string;
+      try {
+        const parsedNotes = parseMusicXML(xmlText);
+        setNotesList(parsedNotes);
+        setTitle(file.name.replace(".musicxml", ""));
+        alert("✅ Partitura cargada con éxito.");
+      } catch (error) {
+        console.error(error);
+        alert("❌ Error al leer el archivo MusicXML.");
+      }
+    };
+    reader.readAsText(file);
+  };
 
   const saveScore = async () => {
     if (!title) return alert("⚠️ Ponle un título.");
@@ -404,13 +430,9 @@ export default function ScoreEditor() {
     ]);
   };
 
-  // 🔥 LE PASAMOS EL ESTADO BPM A LA LÓGICA MATEMÁTICA
   const handleDebugHardware = () => {
     if (notesList.length === 0) return alert("⚠️ No hay notas.");
-
-    // Si el usuario borró el BPM y se quedó en 0, usamos 60 por defecto para evitar dividir por 0
     const safeBpm = bpm > 0 ? bpm : 60;
-
     const data = translateToHardware(notesList, safeBpm, keySignature);
 
     console.log(`=== DATOS PARA PIANO AUTOMÁTICO (${safeBpm} BPM) ===`);
@@ -422,9 +444,70 @@ export default function ScoreEditor() {
     );
   };
 
+  const handleConnect = async () => {
+    if (isConnected) {
+      await serialService.disconnect();
+      setIsConnected(false);
+      return;
+    }
+    const success = await serialService.connect();
+    setIsConnected(success);
+    if (success) alert("🎹 Piano conectado correctamente por USB");
+  };
+
+  const handlePlay = () => {
+    if (isPlaying) {
+      timeoutsRef.current.forEach(clearTimeout);
+      timeoutsRef.current = [];
+      setIsPlaying(false);
+      for (let i = 0; i < 88; i++) serialService.sendCommand(`OFF,${i}`);
+      return;
+    }
+
+    if (notesList.length === 0)
+      return alert("⚠️ No hay notas para reproducir.");
+
+    setIsPlaying(true);
+    const safeBpm = bpm > 0 ? bpm : 60;
+    const data = translateToHardware(notesList, safeBpm, keySignature);
+
+    data.notes.leds.forEach((led, i) => {
+      const start = data.notes.starts[i];
+      const duration = data.notes.durs[i];
+      const velocity = data.notes.vels[i];
+
+      const onTimeout = setTimeout(() => {
+        serialService.sendCommand(`ON,${led},${velocity}`);
+      }, start);
+
+      const offTimeout = setTimeout(() => {
+        serialService.sendCommand(`OFF,${led}`);
+      }, start + duration);
+
+      timeoutsRef.current.push(onTimeout, offTimeout);
+    });
+
+    const totalDuration =
+      data.notes.starts.length > 0
+        ? Math.max(...data.notes.starts.map((s, i) => s + data.notes.durs[i]))
+        : 0;
+
+    const finishTimeout = setTimeout(() => {
+      setIsPlaying(false);
+      for (let i = 0; i < 88; i++) serialService.sendCommand(`OFF,${i}`);
+    }, totalDuration + 500);
+
+    timeoutsRef.current.push(finishTimeout);
+  };
+
+  useEffect(() => {
+    return () => {
+      timeoutsRef.current.forEach(clearTimeout);
+    };
+  }, []);
+
   return (
     <div className="flex flex-col gap-4 p-2 md:p-6 bg-gray-100 min-h-screen">
-      {/* 1. TOP BAR: Obras, Título y Guardar */}
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-gray-200 shadow-sm w-full">
         <select
           className="px-4 py-2.5 rounded-xl border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-500 font-bold text-gray-700 bg-blue-50 w-full sm:w-auto cursor-pointer outline-none"
@@ -441,6 +524,15 @@ export default function ScoreEditor() {
             </option>
           ))}
         </select>
+        <label className="flex-1 sm:flex-none px-6 py-2.5 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition shadow-md cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap">
+          📂 Importar XML
+          <input
+            type="file"
+            accept=".musicxml,.xml"
+            onChange={handleFileUpload}
+            className="hidden"
+          />
+        </label>
 
         <input
           type="text"
@@ -450,17 +542,25 @@ export default function ScoreEditor() {
           className="px-4 py-2.5 w-full sm:flex-1 rounded-xl border border-gray-300 shadow-sm focus:ring-2 focus:ring-blue-500 focus:outline-none font-bold text-gray-800 text-lg text-center"
         />
 
-        <button
-          onClick={saveScore}
-          disabled={isSaving}
-          className="w-full sm:w-auto px-8 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition shadow-md disabled:bg-blue-300 flex items-center justify-center gap-2 flex-shrink-0"
-        >
-          {isSaving ? "⏳ Guardando..." : "💾 Guardar Obra"}
-        </button>
+        <div className="flex gap-2 w-full sm:w-auto">
+          <button
+            onClick={saveScore}
+            disabled={isSaving}
+            className="flex-1 sm:flex-none px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition shadow-md disabled:bg-blue-300 flex items-center justify-center gap-2 whitespace-nowrap"
+          >
+            {isSaving ? "⏳..." : "💾 Guardar"}
+          </button>
+
+          <button
+            onClick={handleConnect}
+            className={`flex-1 sm:flex-none px-4 py-2.5 rounded-xl font-bold transition flex items-center justify-center gap-2 whitespace-nowrap ${isConnected ? "bg-green-100 text-green-700 border-2 border-green-500" : "bg-gray-800 text-white hover:bg-gray-900"}`}
+          >
+            {isConnected ? "✅ Conectado" : "🔌 Conectar USB"}
+          </button>
+        </div>
       </div>
 
       <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
-        {/* PANEL LATERAL DE CONFIGURACIÓN (Izquierda) */}
         <div className="w-full lg:w-72 flex-shrink-0 bg-white p-4 rounded-2xl shadow-xl border border-gray-200 sticky top-4 max-h-[calc(100vh-2rem)] overflow-y-auto custom-scrollbar z-20">
           <h2 className="text-xl font-extrabold text-gray-800 mb-4 pb-2 border-b border-gray-200 flex items-center gap-2">
             🛠️ Configuración
@@ -497,19 +597,14 @@ export default function ScoreEditor() {
               setTimeSignature,
               keySignature,
               setKeySignature,
-
-              // 🔥 PASAMOS EL NUEVO ESTADO DE BPM
               bpm,
               setBpm,
-
               onDebugHardware: handleDebugHardware,
             }}
           />
         </div>
 
-        {/* 3. ÁREA PRINCIPAL (Derecha) */}
         <div className="flex-1 flex flex-col gap-4 w-full min-w-0">
-          {/* TECLADO DE NOTAS PEGAJOSO (Arriba de la partitura) */}
           <div className="bg-white p-4 md:p-6 rounded-2xl shadow-xl border border-gray-200 flex flex-col gap-4 w-full sticky top-4 z-20">
             <div className="flex flex-col gap-3">
               {rowOctaves.map((octave, rowIndex) => (
@@ -517,7 +612,6 @@ export default function ScoreEditor() {
                   key={rowIndex}
                   className="flex flex-col sm:flex-row items-center gap-3 w-full"
                 >
-                  {/* Etiqueta Octava */}
                   <div className="flex items-center justify-between sm:justify-start gap-2 bg-orange-50 px-3 py-1.5 rounded-lg border border-orange-200 w-full sm:w-auto shrink-0">
                     <span className="text-xs font-bold text-orange-700">
                       OCTAVA
@@ -539,7 +633,6 @@ export default function ScoreEditor() {
                     </button>
                   </div>
 
-                  {/* Notas Do Re Mi */}
                   <div className="flex w-full gap-1.5 flex-wrap">
                     {["c", "d", "e", "f", "g", "a", "b"].map(
                       (noteKey, noteIndex) => {
@@ -568,17 +661,30 @@ export default function ScoreEditor() {
               ))}
             </div>
 
-            {/* Acciones */}
             <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-100">
               <button
+                onClick={handlePlay}
+                disabled={!isConnected}
+                className={`flex-1 min-w-[140px] py-2.5 font-bold rounded-xl shadow transition flex items-center justify-center gap-2 text-sm ${
+                  isPlaying
+                    ? "bg-red-100 text-red-700 border-2 border-red-500 hover:bg-red-200"
+                    : "bg-green-600 text-white hover:bg-green-700 disabled:bg-gray-300 disabled:text-gray-500"
+                }`}
+              >
+                {isPlaying
+                  ? "⏹️ Detener Reproducción"
+                  : "▶️ Reproducir en Piano"}
+              </button>
+
+              <button
                 onClick={addRest}
-                className="flex-1 min-w-[120px] py-2.5 bg-gray-800 text-white font-bold rounded-xl shadow hover:bg-gray-900 transition flex items-center justify-center gap-2 text-sm"
+                className="flex-1 min-w-[100px] py-2.5 bg-gray-800 text-white font-bold rounded-xl shadow hover:bg-gray-900 transition flex items-center justify-center gap-2 text-sm"
               >
                 𝄽 Silencio
               </button>
               <button
                 onClick={undoLastNote}
-                className="flex-1 min-w-[120px] py-2.5 bg-yellow-500 text-white font-bold rounded-xl shadow hover:bg-yellow-600 transition flex items-center justify-center gap-2 text-sm"
+                className="flex-1 min-w-[100px] py-2.5 bg-yellow-500 text-white font-bold rounded-xl shadow hover:bg-yellow-600 transition flex items-center justify-center gap-2 text-sm"
               >
                 ↩️ Deshacer
               </button>
@@ -587,14 +693,13 @@ export default function ScoreEditor() {
                   setNotesList([]);
                   setSelectedNoteIndex(null);
                 }}
-                className="flex-1 min-w-[120px] py-2.5 bg-red-500 text-white font-bold rounded-xl shadow hover:bg-red-600 transition flex items-center justify-center gap-2 text-sm"
+                className="flex-1 min-w-[100px] py-2.5 bg-red-500 text-white font-bold rounded-xl shadow hover:bg-red-600 transition flex items-center justify-center gap-2 text-sm"
               >
                 🗑️ Limpiar Todo
               </button>
             </div>
           </div>
 
-          {/* LIENZO DE LA PARTITURA */}
           <div className="bg-white p-4 md:p-10 rounded-3xl shadow-xl border border-gray-200 overflow-x-auto w-full z-0">
             <VexFlowRenderer
               notesList={notesList}

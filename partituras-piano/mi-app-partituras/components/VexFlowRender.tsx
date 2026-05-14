@@ -16,8 +16,9 @@ import {
   GhostNote,
   Barline,
   Tuplet,
-  Annotation, // 🔥 NUEVO: Para Textos y Dinámicas
-  PedalMarking, // 🔥 NUEVO: Para la línea del pedal
+  Annotation,
+  PedalMarking,
+  Curve,
 } from "vexflow";
 import {
   NoteData,
@@ -62,18 +63,28 @@ export default function VexFlowRenderer({
       originalIndex: i,
     }));
 
-    const tNotesV1 = notesWithIndex.filter(
-      (n) => n.clef === "treble" && (n.voice || 1) === 1,
+    // Normalizador de Voces
+    const normalizeVoices = (notes: any[]) => {
+      const uniqueVoices = Array.from(
+        new Set(notes.map((n) => n.voice || 1)),
+      ).sort((a, b) => a - b);
+      return notes.map((n) => ({
+        ...n,
+        normalizedVoice: uniqueVoices.indexOf(n.voice || 1) + 1,
+      }));
+    };
+
+    const trebleNotes = normalizeVoices(
+      notesWithIndex.filter((n) => n.clef === "treble" || !n.clef),
     );
-    const tNotesV2 = notesWithIndex.filter(
-      (n) => n.clef === "treble" && n.voice === 2,
+    const bassNotes = normalizeVoices(
+      notesWithIndex.filter((n) => n.clef === "bass"),
     );
-    const bNotesV1 = notesWithIndex.filter(
-      (n) => n.clef === "bass" && (n.voice || 1) === 1,
-    );
-    const bNotesV2 = notesWithIndex.filter(
-      (n) => n.clef === "bass" && n.voice === 2,
-    );
+
+    const tNotesV1 = trebleNotes.filter((n) => n.normalizedVoice === 1);
+    const tNotesV2 = trebleNotes.filter((n) => n.normalizedVoice === 2);
+    const bNotesV1 = bassNotes.filter((n) => n.normalizedVoice === 1);
+    const bNotesV2 = bassNotes.filter((n) => n.normalizedVoice === 2);
 
     const tMeasuresV1 = calculateMeasures(tNotesV1, timeSignature);
     const tMeasuresV2 = calculateMeasures(tNotesV2, timeSignature);
@@ -93,8 +104,10 @@ export default function VexFlowRenderer({
     const context = renderer.getContext();
 
     const allNotesForDOM: any[] = [];
-    const allTiesV1: any[] = [];
-    const allTiesV2: any[] = [];
+    const allTiesTrebleV1: any[] = [];
+    const allTiesTrebleV2: any[] = [];
+    const allTiesBassV1: any[] = [];
+    const allTiesBassV2: any[] = [];
 
     for (let i = 0; i < totalMeasures; i++) {
       const measureData = [
@@ -131,7 +144,7 @@ export default function VexFlowRenderer({
             vNote = new GhostNote({ duration: durString.replace("r", "") });
             vexNotesArray.push({
               vNote,
-              tieNext: false,
+              manualTie: false,
               originalIndex: note.originalIndex,
             });
             return vNote;
@@ -144,7 +157,7 @@ export default function VexFlowRenderer({
             stemDirection: stem_direction,
           });
 
-          // 1. Estilos y color de selección
+          // 1. Estilos
           if (note.originalIndex === selectedNoteIndex) {
             if (selectedKeyIndex !== null && selectedKeyIndex !== -1) {
               vNote.setKeyStyle(selectedKeyIndex, {
@@ -176,7 +189,7 @@ export default function VexFlowRenderer({
           // 4. Puntillo
           if (note.isDotted) vNote.addModifier(new Dot(), 0);
 
-          // ✨ NUEVO: 5. Texto Libre (Ej: Allegro) -> Se dibuja arriba
+          // 5. Texto Libre
           if (note.textAnnotation) {
             vNote.addModifier(
               new Annotation(note.textAnnotation)
@@ -186,7 +199,7 @@ export default function VexFlowRenderer({
             );
           }
 
-          // ✨ NUEVO: 6. Dinámicas (Ej: p, mf, f) -> Se dibujan abajo en cursiva
+          // 6. Dinámicas
           if (note.dynamic && note.dynamic !== "none") {
             vNote.addModifier(
               new Annotation(note.dynamic)
@@ -198,14 +211,21 @@ export default function VexFlowRenderer({
 
           const noteDataToSave = {
             vNote,
-            tieNext: note.tieNext,
+            manualTie: note.manualTie,
             originalIndex: note.originalIndex,
           };
           vexNotesArray.push(noteDataToSave);
           allNotesForDOM.push(noteDataToSave);
 
-          if (capa.voiceNum === 1) allTiesV1.push(noteDataToSave);
-          if (capa.voiceNum === 2) allTiesV2.push(noteDataToSave);
+          // Asignación de carriles para ligaduras
+          if (capa.clef === "treble" && capa.voiceNum === 1)
+            allTiesTrebleV1.push(noteDataToSave);
+          if (capa.clef === "treble" && capa.voiceNum === 2)
+            allTiesTrebleV2.push(noteDataToSave);
+          if (capa.clef === "bass" && capa.voiceNum === 1)
+            allTiesBassV1.push(noteDataToSave);
+          if (capa.clef === "bass" && capa.voiceNum === 2)
+            allTiesBassV2.push(noteDataToSave);
 
           if (note.isTriplet && !note.isInvisible) {
             currentTripletGroup.push(vNote);
@@ -334,30 +354,41 @@ export default function VexFlowRenderer({
       currentX += measureWidth;
     }
 
+    // 🔥 CORRECCIÓN APLICADA: Uso de firstNote/lastNote en vez de first_note/last_note con try/catch de seguridad
     const drawTies = (array: any[]) => {
       for (let i = 0; i < array.length - 1; i++) {
-        if (array[i].tieNext && array[i + 1]) {
+        if (
+          array[i].manualTie &&
+          array[i].vNote &&
+          array[i + 1] &&
+          array[i + 1].vNote
+        ) {
           const keysCount = array[i].vNote.getKeys?.().length || 1;
           const indices = Array.from({ length: keysCount }, (_, idx) => idx);
-          new StaveTie({
-            firstNote: array[i].vNote,
-            lastNote: array[i + 1].vNote,
-            firstIndices: indices,
-            lastIndices: indices,
-          } as any)
-            .setContext(context)
-            .draw();
+          try {
+            new StaveTie({
+              firstNote: array[i].vNote,
+              lastNote: array[i + 1].vNote,
+              firstIndices: indices,
+              lastIndices: indices,
+            } as any)
+              .setContext(context)
+              .draw();
+          } catch (e) {
+            console.warn("No se pudo dibujar la ligadura:", e);
+          }
         }
       }
     };
-    drawTies(allTiesV1);
-    drawTies(allTiesV2);
 
-    // ✨ NUEVO: Dibujamos la línea del Pedal
+    drawTies(allTiesTrebleV1);
+    drawTies(allTiesTrebleV2);
+    drawTies(allTiesBassV1);
+    drawTies(allTiesBassV2);
+
     const drawPedals = () => {
       let currentStart: any = null;
 
-      // Ordenamos las notas por su índice original para asegurar el orden temporal exacto
       const sortedNotes = [...allNotesForDOM].sort(
         (a, b) => a.originalIndex - b.originalIndex,
       );
@@ -369,14 +400,43 @@ export default function VexFlowRenderer({
         if (noteData.pedal === "start") {
           currentStart = item.vNote;
         } else if (noteData.pedal === "stop" && currentStart) {
-          // Si encontramos un inicio y un final, VexFlow traza la línea automáticamente
           const pedal = new PedalMarking([currentStart, item.vNote]);
           pedal.setContext(context).draw();
-          currentStart = null; // Reiniciamos para el siguiente pedal
+          currentStart = null;
         }
       });
     };
     drawPedals();
+
+    const drawSlurs = () => {
+      let currentSlurStart: any = null;
+
+      const sortedNotes = [...allNotesForDOM].sort(
+        (a, b) => a.originalIndex - b.originalIndex,
+      );
+
+      sortedNotes.forEach((item) => {
+        const noteData = notesList[item.originalIndex];
+        if (!noteData) return;
+
+        if (noteData.slur === "start") {
+          currentSlurStart = item.vNote;
+        } else if (noteData.slur === "stop" && currentSlurStart) {
+          try {
+            const curve = new Curve(currentSlurStart, item.vNote, {
+              thickness: 2,
+              xShift: 0,
+              yShift: 10,
+            });
+            curve.setContext(context).draw();
+          } catch (e) {
+            console.warn("No se pudo dibujar el Slur:", e);
+          }
+          currentSlurStart = null;
+        }
+      });
+    };
+    drawSlurs();
 
     renderer.resize(MAX_LINE_WIDTH + 50, numLines * lineHeight + 50);
 

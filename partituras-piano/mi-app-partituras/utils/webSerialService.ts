@@ -5,48 +5,67 @@ class WebSerialService {
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private encoder = new TextEncoder();
 
-  // Función para abrir la ventanita del navegador y elegir el Arduino
+  // 🔥 NUEVO: El "Embudo" para que los acordes no atasquen el cable
+  private writeQueue: string[] = [];
+  private isWriting = false;
+
   async connect() {
     try {
       if (!("serial" in navigator)) {
         alert(
-          "Tu navegador no soporta Web Serial API. Usa Google Chrome o Microsoft Edge.",
+          "Tu navegador no soporta Web Serial API. Usa Google Chrome o Edge.",
         );
         return false;
       }
-
-      // Pedimos permiso al usuario para conectar
       this.port = await navigator.serial.requestPort();
-
-      // Abrimos la conexión a 115200 baudios (la misma velocidad que el Arduino)
       await this.port.open({ baudRate: 115200 });
-
       this.writer = this.port.writable?.getWriter() || null;
       console.log("✅ Conectado al Arduino con éxito.");
       return true;
-    } catch (error) {
-      console.error("❌ Error conectando al puerto serie:", error);
+    } catch (error: any) {
+      if (error.name === "NotFoundError" || error.name === "AbortError") {
+        console.log("🔌 Selección cancelada.");
+      } else {
+        console.error("❌ Error real conectando:", error);
+      }
       return false;
     }
   }
 
-  // Función para enviar un comando de texto al Arduino
+  // Ahora en lugar de enviar directo, metemos en la cola
   async sendCommand(command: string) {
-    if (!this.writer) {
-      console.warn("⚠️ No hay conexión con el Arduino. Conecta primero.");
-      return;
-    }
+    if (!this.writer) return;
+
+    // Metemos el comando en el embudo con el salto de línea
+    this.writeQueue.push(command + "\n");
+
+    // Llamamos al motor que vacía el embudo
+    this.processQueue();
+  }
+
+  // Este es el motor que envía uno por uno a toda velocidad
+  private async processQueue() {
+    // Si ya está enviando algo, o no hay nada que enviar, no hace nada
+    if (this.isWriting || this.writeQueue.length === 0 || !this.writer) return;
+
+    this.isWriting = true; // "Cierra la puerta" para que nadie más se cuele
 
     try {
-      // Convertimos el texto a bytes y le añadimos un salto de línea para que el Arduino sepa que terminó
-      const data = this.encoder.encode(command + "\n");
-      await this.writer.write(data);
+      // Mientras haya cosas en el embudo...
+      while (this.writeQueue.length > 0) {
+        const cmd = this.writeQueue.shift(); // Saca el primero
+        if (cmd) {
+          const data = this.encoder.encode(cmd);
+          await this.writer.write(data); // Lo envía por el cable de forma segura
+        }
+      }
     } catch (error) {
-      console.error("❌ Error enviando comando:", error);
+      console.error("❌ Error escribiendo en el puerto serie:", error);
+    } finally {
+      this.isWriting = false; // "Abre la puerta" de nuevo
     }
   }
 
-  // Función para cerrar la conexión
   async disconnect() {
     if (this.writer) {
       await this.writer.close();
@@ -60,5 +79,4 @@ class WebSerialService {
   }
 }
 
-// Exportamos una única instancia para usarla en toda la app
 export const serialService = new WebSerialService();

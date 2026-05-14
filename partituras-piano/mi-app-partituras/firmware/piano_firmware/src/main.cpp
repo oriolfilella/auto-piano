@@ -1,54 +1,63 @@
 #include <FastLED.h>
 
-// Ajusta esto a tu tira LED real
 #define NUM_LEDS 88 
 #define DATA_PIN 6
 
 CRGB leds[NUM_LEDS];
+bool ledsChanged = false;
+unsigned long lastDataTime = 0; // 🔥 El reloj que mide la paciencia del Arduino
 
 void setup() {
-  // Inicializamos la comunicación a alta velocidad (muy importante para evitar lag)
   Serial.begin(115200);
+  Serial.setTimeout(5); 
   
-  // Configuramos la tira LED
   FastLED.addLeds<WS2812B, DATA_PIN, GRB>(leds, NUM_LEDS);
-  FastLED.setBrightness(100); // Brillo general (0-255)
+  FastLED.setBrightness(25); // Brillo bajito
   FastLED.clear();
   FastLED.show();
 }
 
 void loop() {
-  // Si nos llega un mensaje desde la página web...
-  if (Serial.available() > 0) {
-    // Leemos la línea entera hasta el salto de línea (\n)
+  // 1. LEER DATOS
+  while (Serial.available() > 0) {
     String command = Serial.readStringUntil('\n');
+    command.trim();
     
-    // Parseamos el comando. Esperamos formatos: "ON,LED,VELOCITY" o "OFF,LED"
-    int firstComma = command.indexOf(',');
-    int secondComma = command.indexOf(',', firstComma + 1);
-    
-    if (firstComma > 0) {
-      String action = command.substring(0, firstComma);
+    if (command.startsWith("ON")) {
+      int firstComma = command.indexOf(',');
+      int secondComma = command.indexOf(',', firstComma + 1);
       
-      if (action == "ON" && secondComma > 0) {
+      if (firstComma > 0 && secondComma > 0) {
         int ledIndex = command.substring(firstComma + 1, secondComma).toInt();
         int velocity = command.substring(secondComma + 1).toInt();
         
         if (ledIndex >= 0 && ledIndex < NUM_LEDS) {
-          // Por ahora encendemos en color azul eléctrico, la intensidad depende de la velocidad
-          // En el futuro podemos cambiar el color según la mano derecha/izquierda
           leds[ledIndex] = CHSV(160, 255, velocity); 
-          FastLED.show();
+          ledsChanged = true;
         }
-      } 
-      else if (action == "OFF") {
+      }
+    } 
+    else if (command.startsWith("OFF")) {
+      int firstComma = command.indexOf(',');
+      if (firstComma > 0) {
         int ledIndex = command.substring(firstComma + 1).toInt();
         
         if (ledIndex >= 0 && ledIndex < NUM_LEDS) {
-          leds[ledIndex] = CRGB::Black; // Apagamos el LED
-          FastLED.show();
+          leds[ledIndex] = CRGB::Black;
+          ledsChanged = true;
         }
       }
     }
+    
+    // 🔥 Acabamos de recibir algo, reseteamos el reloj de espera
+    lastDataTime = millis(); 
+  }
+
+  // 2. ACTUALIZAR LAS LUCES (Con paciencia)
+  // Solo actualizamos si hay cambios Y han pasado al menos 5 milisegundos 
+  // desde la ÚLTIMA letra que recibimos. Así aseguramos que el acorde ha entrado entero.
+  if (ledsChanged && (millis() - lastDataTime > 5)) {
+    FastLED.show();
+    ledsChanged = false;
   }
 }

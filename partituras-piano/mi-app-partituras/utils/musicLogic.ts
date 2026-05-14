@@ -17,6 +17,7 @@ export type NoteData = {
   textAnnotation?: string;
   dynamic?: string;
   pedal?: "start" | "stop";
+  slur?: "start" | "stop";
 };
 
 export const signatureConfig: Record<
