@@ -1,17 +1,22 @@
 // src/components/ScoreEditor.tsx
 "use client";
 import { useState, useEffect, useRef } from "react";
+import { Session } from "@supabase/supabase-js";
 import { NoteData, getBeats } from "../utils/musicLogic";
 import VexFlowRenderer from "./VexFlowRender";
 import { supabase } from "../utils/superbaseClient";
 import { ControlPanel } from "./ControlPanel";
+import Auth from "./Auth";
 
 import { translateToHardware } from "../utils/hardwareTranslator";
 import { serialService } from "../utils/webSerialService";
-
 import { parseMusicXML } from "../utils/musicXMLParser";
 
 export default function ScoreEditor() {
+  const [session, setSession] = useState<Session | null>(null);
+  // 🔥 NUEVO: Estado para saber si es un invitado
+  const [isGuest, setIsGuest] = useState(false);
+
   const [notesList, setNotesList] = useState<NoteData[]>([]);
   const [currentDuration, setCurrentDuration] = useState<string>("q");
   const [timeSignature, setTimeSignature] = useState<string>("4/4");
@@ -44,17 +49,39 @@ export default function ScoreEditor() {
   const [isPlaying, setIsPlaying] = useState(false);
   const timeoutsRef = useRef<NodeJS.Timeout[]>([]);
 
-  const fetchScores = async () => {
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setSession(session);
+      // Si hay sesión, dejamos de ser invitados automáticamente
+      if (session) setIsGuest(false);
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setSession(session);
+      if (session) setIsGuest(false);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const fetchScores = async (userId: string) => {
     const { data, error } = await supabase
       .from("scores")
       .select("*")
+      .eq("user_id", userId)
       .order("created_at", { ascending: false });
     if (!error) setSavedScores(data || []);
   };
 
   useEffect(() => {
-    fetchScores();
-  }, []);
+    if (session?.user.id) {
+      fetchScores(session.user.id);
+    } else {
+      setSavedScores([]);
+    }
+  }, [session]);
 
   const handleLoadScore = (scoreId: string) => {
     const score = savedScores.find((s) => s.id.toString() === scoreId);
@@ -101,7 +128,14 @@ export default function ScoreEditor() {
   };
 
   const saveScore = async () => {
+    // 🔥 NUEVO: Aviso amable para invitados
+    if (!session?.user.id) {
+      return alert(
+        "🔒 Para guardar tus partituras en la nube y acceder a ellas desde cualquier lugar, por favor inicia sesión o crea una cuenta gratis.",
+      );
+    }
     if (!title) return alert("⚠️ Ponle un título.");
+
     setIsSaving(true);
     const { error } = await supabase.from("scores").insert([
       {
@@ -109,11 +143,12 @@ export default function ScoreEditor() {
         content: notesList,
         time_signature: timeSignature,
         key_signature: keySignature,
+        user_id: session.user.id,
       },
     ]);
     if (!error) {
       alert("✅ ¡Guardado con éxito!");
-      fetchScores();
+      fetchScores(session.user.id);
     } else {
       console.error("Error guardando:", error);
       alert("❌ Hubo un error al guardar.");
@@ -506,16 +541,25 @@ export default function ScoreEditor() {
     };
   }, []);
 
+  // 🔥 NUEVO: Si no hay sesión Y no es invitado, muestra la pantalla de Auth
+  if (!session && !isGuest) {
+    return <Auth onGuest={() => setIsGuest(true)} />;
+  }
+
   return (
     <div className="flex flex-col gap-4 p-2 md:p-6 bg-gray-100 min-h-screen">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-gray-200 shadow-sm w-full">
+        {/* Desplegable de partituras (si es invitado no puede cargar porque no tiene base de datos) */}
         <select
           className="px-4 py-2.5 rounded-xl border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-500 font-bold text-gray-700 bg-blue-50 w-full sm:w-auto cursor-pointer outline-none"
           onChange={(e) => handleLoadScore(e.target.value)}
           defaultValue=""
+          disabled={!session}
         >
           <option value="" disabled>
-            📂 Abrir Obra Guardada...
+            {session
+              ? "📂 Abrir Obra Guardada..."
+              : "📂 Inicia sesión para abrir obras"}
           </option>
           {savedScores.map((score) => (
             <option key={score.id} value={score.id}>
@@ -524,6 +568,7 @@ export default function ScoreEditor() {
             </option>
           ))}
         </select>
+
         <label className="flex-1 sm:flex-none px-6 py-2.5 bg-purple-600 text-white font-bold rounded-xl hover:bg-purple-700 transition shadow-md cursor-pointer flex items-center justify-center gap-2 whitespace-nowrap">
           📂 Importar XML
           <input
@@ -546,7 +591,11 @@ export default function ScoreEditor() {
           <button
             onClick={saveScore}
             disabled={isSaving}
-            className="flex-1 sm:flex-none px-6 py-2.5 bg-blue-600 text-white font-bold rounded-xl hover:bg-blue-700 transition shadow-md disabled:bg-blue-300 flex items-center justify-center gap-2 whitespace-nowrap"
+            className={`flex-1 sm:flex-none px-6 py-2.5 font-bold rounded-xl transition shadow-md flex items-center justify-center gap-2 whitespace-nowrap ${
+              session
+                ? "bg-blue-600 text-white hover:bg-blue-700"
+                : "bg-gray-300 text-gray-600 cursor-not-allowed"
+            }`}
           >
             {isSaving ? "⏳..." : "💾 Guardar"}
           </button>
@@ -557,6 +606,23 @@ export default function ScoreEditor() {
           >
             {isConnected ? "✅ Conectado" : "🔌 Conectar USB"}
           </button>
+
+          {/* 🔥 BOTÓN DINÁMICO: Salir (Si hay sesión) o Iniciar Sesión (Si es invitado) */}
+          {session ? (
+            <button
+              onClick={() => supabase.auth.signOut()}
+              className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl font-bold transition flex items-center justify-center gap-2 whitespace-nowrap bg-red-100 text-red-700 hover:bg-red-200 border-2 border-transparent"
+            >
+              🚪 Salir
+            </button>
+          ) : (
+            <button
+              onClick={() => setIsGuest(false)}
+              className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl font-bold transition flex items-center justify-center gap-2 whitespace-nowrap bg-blue-100 text-blue-700 hover:bg-blue-200 border-2 border-transparent"
+            >
+              👤 Iniciar Sesión
+            </button>
+          )}
         </div>
       </div>
 

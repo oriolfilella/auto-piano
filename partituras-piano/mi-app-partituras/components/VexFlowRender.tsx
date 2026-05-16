@@ -1,6 +1,6 @@
 // --- src/components/VexFlowRenderer.tsx ---
 "use client";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Renderer,
   Stave,
@@ -47,6 +47,28 @@ export default function VexFlowRenderer({
 }: VexFlowRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
 
+  // Guardamos el ancho dinámico, empezamos con 800 por defecto
+  const [canvasWidth, setCanvasWidth] = useState(800);
+
+  // 🔥 SOLUCIÓN 1: El Radar (ResizeObserver)
+  // En lugar de medir toda la pantalla, esto mide EXACTAMENTE la caja blanca donde está la partitura.
+  useEffect(() => {
+    const parent = containerRef.current?.parentElement;
+    if (!parent) return;
+
+    const observer = new ResizeObserver((entries) => {
+      for (let entry of entries) {
+        // Tomamos el ancho real de la caja y le quitamos 20px de margen de seguridad
+        const newWidth = entry.contentRect.width - 20;
+        // Si el usuario está en móvil, nunca bajamos de 500px para que no se aplaste
+        setCanvasWidth(Math.max(newWidth, 500));
+      }
+    });
+
+    observer.observe(parent);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     if (!containerRef.current) return;
     containerRef.current.innerHTML = "";
@@ -55,7 +77,7 @@ export default function VexFlowRenderer({
     const isValidSignature = /^\d+\/\d+$/.test(timeSignature);
     const safeSignature = isValidSignature ? timeSignature : "4/4";
 
-    const MAX_LINE_WIDTH = 1200;
+    const MAX_LINE_WIDTH = canvasWidth;
     const lineHeight = 220;
 
     const notesWithIndex = notesList.map((n, i) => ({
@@ -63,7 +85,6 @@ export default function VexFlowRenderer({
       originalIndex: i,
     }));
 
-    // Normalizador de Voces
     const normalizeVoices = (notes: any[]) => {
       const uniqueVoices = Array.from(
         new Set(notes.map((n) => n.voice || 1)),
@@ -157,7 +178,6 @@ export default function VexFlowRenderer({
             stemDirection: stem_direction,
           });
 
-          // 1. Estilos
           if (note.originalIndex === selectedNoteIndex) {
             if (selectedKeyIndex !== null && selectedKeyIndex !== -1) {
               vNote.setKeyStyle(selectedKeyIndex, {
@@ -169,7 +189,6 @@ export default function VexFlowRenderer({
             }
           }
 
-          // 2. Alteraciones
           note.keys.forEach((keyName: string, index: number) => {
             const symbol = keyName.split("/")[0].slice(1);
             if (symbol === "#" || symbol === "b" || symbol === "n") {
@@ -177,7 +196,6 @@ export default function VexFlowRenderer({
             }
           });
 
-          // 3. Articulaciones
           if (note.articulation && note.articulation !== "none") {
             const pos = capa.voiceNum === 2 ? 4 : 3;
             vNote.addModifier(
@@ -186,10 +204,8 @@ export default function VexFlowRenderer({
             );
           }
 
-          // 4. Puntillo
           if (note.isDotted) vNote.addModifier(new Dot(), 0);
 
-          // 5. Texto Libre
           if (note.textAnnotation) {
             vNote.addModifier(
               new Annotation(note.textAnnotation)
@@ -199,7 +215,6 @@ export default function VexFlowRenderer({
             );
           }
 
-          // 6. Dinámicas
           if (note.dynamic && note.dynamic !== "none") {
             vNote.addModifier(
               new Annotation(note.dynamic)
@@ -217,7 +232,6 @@ export default function VexFlowRenderer({
           vexNotesArray.push(noteDataToSave);
           allNotesForDOM.push(noteDataToSave);
 
-          // Asignación de carriles para ligaduras
           if (capa.clef === "treble" && capa.voiceNum === 1)
             allTiesTrebleV1.push(noteDataToSave);
           if (capa.clef === "treble" && capa.voiceNum === 2)
@@ -280,7 +294,10 @@ export default function VexFlowRenderer({
       const maxNotesInMeasure = Math.max(
         ...measureData.map((c) => c.data.length),
       );
-      const breathingRoom = maxNotesInMeasure * 25 + 30;
+
+      // 🔥 SOLUCIÓN 2: Ajuste de proporciones
+      // Reducimos el multiplicador para que los compases sean más compactos y profesionales
+      const breathingRoom = maxNotesInMeasure * 15 + 20;
       const finalNoteWidth = minNoteWidth + breathingRoom;
 
       let isFirstInLine = currentX === 20;
@@ -354,7 +371,6 @@ export default function VexFlowRenderer({
       currentX += measureWidth;
     }
 
-    // 🔥 CORRECCIÓN APLICADA: Uso de firstNote/lastNote en vez de first_note/last_note con try/catch de seguridad
     const drawTies = (array: any[]) => {
       for (let i = 0; i < array.length - 1; i++) {
         if (
@@ -471,6 +487,7 @@ export default function VexFlowRenderer({
     keySignature,
     selectedNoteIndex,
     selectedKeyIndex,
+    canvasWidth, // 🔥 El estado del ResizeObserver obliga a VexFlow a redibujar si encoges la pantalla
   ]);
 
   const handleContainerClick = (e: React.MouseEvent<HTMLDivElement>) => {

@@ -39,3 +39,12 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# --- Tauri / Rust ---
+src-tauri/target/
+
+# --- Next.js Export ---
+out/
+
+# --- PlatformIO / Arduino (por si acaso) ---
+firmware/**/.pio/
