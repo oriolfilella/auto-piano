@@ -549,7 +549,8 @@ export default function ScoreEditor() {
     setIsPlayingPC(true);
     const safeBpm = bpm > 0 ? bpm : 60;
 
-    await playAudioPC(notesList, safeBpm, () => {
+    await playAudioPC(notesList, safeBpm, keySignature, () => {
+      // 🔥 Añadido keySignature
       setIsPlayingPC(false);
     });
   };
@@ -559,6 +560,97 @@ export default function ScoreEditor() {
       timeoutsRef.current.forEach(clearTimeout);
     };
   }, []);
+
+  // --- ATAJOS DE TECLADO (HOTKEYS) ---
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // 1. Evitar atajos si el usuario está escribiendo el título de la partitura
+      if ((e.target as HTMLElement).tagName === "INPUT") return;
+
+      // 2. MODO ACORDES (MANTENER PULSADO)
+      if (e.key === "Shift" || e.key.toLowerCase() === "a") {
+        setIsChordMode(true);
+      }
+
+      // 3. ATAJOS RÁPIDOS (PULSAR)
+      switch (e.key.toLowerCase()) {
+        case "s":
+          toggleAccidental("#");
+          break;
+        case "f":
+          toggleAccidental("b");
+          break;
+        case "n":
+          toggleAccidental("n");
+          break;
+
+        case "d":
+          setIsDotActive((prev) => !prev);
+          break;
+        case "t":
+          setIsTieActive((prev) => !prev);
+          break;
+
+        case "r":
+          addRest();
+          break;
+
+        case "z":
+          // Deshacer con Ctrl+Z o Cmd+Z (Mac)
+          if (e.ctrlKey || e.metaKey) {
+            e.preventDefault();
+            undoLastNote();
+          }
+          break;
+
+        case " ":
+          // Reproducir en PC con la barra espaciadora
+          e.preventDefault(); // Evita que la página haga scroll hacia abajo
+          handlePlayPC();
+          break;
+
+        // DURACIONES
+        case "1":
+          setCurrentDuration("w");
+          break; // Redonda
+        case "2":
+          setCurrentDuration("h");
+          break; // Blanca
+        case "3":
+          setCurrentDuration("q");
+          break; // Negra
+        case "4":
+          setCurrentDuration("8");
+          break; // Corchea
+        case "5":
+          setCurrentDuration("16");
+          break; // Semicorchea
+      }
+    };
+
+    const handleKeyUp = (e: KeyboardEvent) => {
+      // DESACTIVAR MODO ACORDES AL SOLTAR
+      if (e.key === "Shift" || e.key.toLowerCase() === "a") {
+        setIsChordMode(false);
+      }
+    };
+
+    // Activamos los escuchadores
+    window.addEventListener("keydown", handleKeyDown);
+    window.addEventListener("keyup", handleKeyUp);
+
+    // Limpieza al desmontar
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+      window.removeEventListener("keyup", handleKeyUp);
+    };
+  }, [
+    // Dependencias necesarias para que el useEffect siempre tenga los datos más recientes
+    toggleAccidental,
+    addRest,
+    undoLastNote,
+    handlePlayPC,
+  ]);
 
   if (!session && !isGuest) {
     return <Auth onGuest={() => setIsGuest(true)} />;
