@@ -11,11 +11,12 @@ import Auth from "./Auth";
 import { translateToHardware } from "../utils/hardwareTranslator";
 import { serialService } from "../utils/webSerialService";
 import { parseMusicXML } from "../utils/musicXMLParser";
+import { playAudioPC, stopAudioPC } from "../utils/audioPlayer";
 
 export default function ScoreEditor() {
   const [session, setSession] = useState<Session | null>(null);
-  // 🔥 NUEVO: Estado para saber si es un invitado
   const [isGuest, setIsGuest] = useState(false);
+  const [isPlayingPC, setIsPlayingPC] = useState(false);
 
   const [notesList, setNotesList] = useState<NoteData[]>([]);
   const [currentDuration, setCurrentDuration] = useState<string>("q");
@@ -52,7 +53,6 @@ export default function ScoreEditor() {
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session);
-      // Si hay sesión, dejamos de ser invitados automáticamente
       if (session) setIsGuest(false);
     });
 
@@ -128,7 +128,6 @@ export default function ScoreEditor() {
   };
 
   const saveScore = async () => {
-    // 🔥 NUEVO: Aviso amable para invitados
     if (!session?.user.id) {
       return alert(
         "🔒 Para guardar tus partituras en la nube y acceder a ellas desde cualquier lugar, por favor inicia sesión o crea una cuenta gratis.",
@@ -490,6 +489,7 @@ export default function ScoreEditor() {
     if (success) alert("🎹 Piano conectado correctamente por USB");
   };
 
+  // --- REPRODUCCIÓN EN EL PIANO FÍSICO ---
   const handlePlay = () => {
     if (isPlaying) {
       timeoutsRef.current.forEach(clearTimeout);
@@ -535,13 +535,31 @@ export default function ScoreEditor() {
     timeoutsRef.current.push(finishTimeout);
   };
 
+  // --- REPRODUCCIÓN EN EL ORDENADOR (TONE.JS) ---
+  const handlePlayPC = async () => {
+    if (isPlayingPC) {
+      stopAudioPC();
+      setIsPlayingPC(false);
+      return;
+    }
+
+    if (notesList.length === 0)
+      return alert("⚠️ No hay notas para reproducir.");
+
+    setIsPlayingPC(true);
+    const safeBpm = bpm > 0 ? bpm : 60;
+
+    await playAudioPC(notesList, safeBpm, () => {
+      setIsPlayingPC(false);
+    });
+  };
+
   useEffect(() => {
     return () => {
       timeoutsRef.current.forEach(clearTimeout);
     };
   }, []);
 
-  // 🔥 NUEVO: Si no hay sesión Y no es invitado, muestra la pantalla de Auth
   if (!session && !isGuest) {
     return <Auth onGuest={() => setIsGuest(true)} />;
   }
@@ -549,7 +567,6 @@ export default function ScoreEditor() {
   return (
     <div className="flex flex-col gap-4 p-2 md:p-6 bg-gray-100 min-h-screen">
       <div className="flex flex-col sm:flex-row justify-between items-center gap-4 bg-white p-4 rounded-2xl border border-gray-200 shadow-sm w-full">
-        {/* Desplegable de partituras (si es invitado no puede cargar porque no tiene base de datos) */}
         <select
           className="px-4 py-2.5 rounded-xl border border-blue-200 shadow-sm focus:ring-2 focus:ring-blue-500 font-bold text-gray-700 bg-blue-50 w-full sm:w-auto cursor-pointer outline-none"
           onChange={(e) => handleLoadScore(e.target.value)}
@@ -607,7 +624,6 @@ export default function ScoreEditor() {
             {isConnected ? "✅ Conectado" : "🔌 Conectar USB"}
           </button>
 
-          {/* 🔥 BOTÓN DINÁMICO: Salir (Si hay sesión) o Iniciar Sesión (Si es invitado) */}
           {session ? (
             <button
               onClick={() => supabase.auth.signOut()}
@@ -728,6 +744,17 @@ export default function ScoreEditor() {
             </div>
 
             <div className="flex flex-wrap gap-3 pt-4 border-t border-gray-100">
+              <button
+                onClick={handlePlayPC}
+                className={`flex-1 min-w-[140px] py-2.5 font-bold rounded-xl shadow transition flex items-center justify-center gap-2 text-sm ${
+                  isPlayingPC
+                    ? "bg-orange-100 text-orange-700 border-2 border-orange-500 hover:bg-orange-200"
+                    : "bg-blue-600 text-white hover:bg-blue-700"
+                }`}
+              >
+                {isPlayingPC ? "⏹️ Detener Audio" : "🎧 Escuchar en PC"}
+              </button>
+
               <button
                 onClick={handlePlay}
                 disabled={!isConnected}
