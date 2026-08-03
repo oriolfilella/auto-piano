@@ -1,6 +1,6 @@
 {
   "compilerOptions": {
-    "types": ["node", "w3c-web-serial"],
+    "types": ["node", "w3c-web-serial", "web-bluetooth"],
     "target": "ES2017",
     "lib": ["dom", "dom.iterable", "esnext"],
     "allowJs": true,

@@ -1,0 +1,11 @@
+{
+	"folders": [
+		{
+			"path": "../../.."
+		},
+		{
+			"path": "../firmware/piano_firmware"
+		}
+	],
+	"settings": {}
+}

@@ -5,7 +5,6 @@ class WebSerialService {
   private writer: WritableStreamDefaultWriter<Uint8Array> | null = null;
   private encoder = new TextEncoder();
 
-  // 🔥 NUEVO: El "Embudo" para que los acordes no atasquen el cable
   private writeQueue: string[] = [];
   private isWriting = false;
 
@@ -20,7 +19,7 @@ class WebSerialService {
       this.port = await navigator.serial.requestPort();
       await this.port.open({ baudRate: 115200 });
       this.writer = this.port.writable?.getWriter() || null;
-      console.log("✅ Conectado al Arduino con éxito.");
+      console.log("✅ Conectado al piano con éxito.");
       return true;
     } catch (error: any) {
       if (error.name === "NotFoundError" || error.name === "AbortError") {
@@ -32,38 +31,65 @@ class WebSerialService {
     }
   }
 
-  // Ahora en lugar de enviar directo, metemos en la cola
   async sendCommand(command: string) {
     if (!this.writer) return;
-
-    // Metemos el comando en el embudo con el salto de línea
     this.writeQueue.push(command + "\n");
-
-    // Llamamos al motor que vacía el embudo
     this.processQueue();
   }
 
-  // Este es el motor que envía uno por uno a toda velocidad
   private async processQueue() {
-    // Si ya está enviando algo, o no hay nada que enviar, no hace nada
     if (this.isWriting || this.writeQueue.length === 0 || !this.writer) return;
-
-    this.isWriting = true; // "Cierra la puerta" para que nadie más se cuele
+    this.isWriting = true;
 
     try {
-      // Mientras haya cosas en el embudo...
       while (this.writeQueue.length > 0) {
-        const cmd = this.writeQueue.shift(); // Saca el primero
+        const cmd = this.writeQueue.shift();
         if (cmd) {
           const data = this.encoder.encode(cmd);
-          await this.writer.write(data); // Lo envía por el cable de forma segura
+          await this.writer.write(data);
         }
       }
     } catch (error) {
       console.error("❌ Error escribiendo en el puerto serie:", error);
     } finally {
-      this.isWriting = false; // "Abre la puerta" de nuevo
+      this.isWriting = false;
     }
+  }
+
+  // 🔥 NUEVO: Función para volcar la partitura entera al ESP32
+  async uploadAndPlaySong(hardwareData: any) {
+    if (!this.writer) {
+      console.error("No hay conexión Serial.");
+      return;
+    }
+
+    console.log("Limpiando memoria del ESP32...");
+    await this.sendCommand("CLEAR");
+
+    // Pequeño respiro para que el ESP32 procese el CLEAR
+    await new Promise((r) => setTimeout(r, 50));
+
+    const { leds, starts, durs, vels } = hardwareData.notes;
+    console.log(`Subiendo partitura... (${leds.length} notas)`);
+
+    for (let i = 0; i < leds.length; i++) {
+      const cmd = `N,${leds[i]},${starts[i]},${durs[i]},${vels[i]}`;
+      console.log("Enviando:", cmd);
+      await this.sendCommand(cmd);
+
+      // IMPORTANTE: Pausamos 10ms cada 10 notas para no saturar el buffer del ESP32
+      if (i % 10 === 0) {
+        await new Promise((r) => setTimeout(r, 10));
+      }
+    }
+
+    console.log("✅ Partitura subida. ¡Empezando a tocar!");
+    await this.sendCommand("PLAY");
+  }
+
+  // 🔥 NUEVO: Función para detener la placa
+  async stopSong() {
+    await this.sendCommand("STOP");
   }
 
   async disconnect() {
@@ -75,7 +101,7 @@ class WebSerialService {
       await this.port.close();
       this.port = null;
     }
-    console.log("🔌 Desconectado del Arduino.");
+    console.log("🔌 Desconectado del piano.");
   }
 }
 

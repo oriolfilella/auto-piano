@@ -32,7 +32,6 @@ export interface ControlPanelProps {
   setTimeSignature: (ts: string) => void;
   keySignature: string;
   setKeySignature: (ks: string) => void;
-  // 🔥 NUEVOS PROPS PARA EL BPM
   bpm: number;
   setBpm: (bpm: number) => void;
   onDebugHardware: () => void;
@@ -126,6 +125,7 @@ export const ControlPanel = (props: ControlPanelProps) => {
               ARTICULACIÓN
             </span>
             <select
+              title="Atajos: [ . ] Staccato | [ - ] Tenuto | [ V ] Acento | [ M ] Marcato | [ X ] Ninguna"
               value={props.articulation}
               onChange={(e) => props.setArticulation(e.target.value)}
               className="w-full bg-transparent font-bold text-gray-900 outline-none cursor-pointer text-xs"
@@ -190,18 +190,19 @@ export const ControlPanel = (props: ControlPanelProps) => {
 
       {/* 3. FIGURAS Y MODIFICADORES RÍTMICOS */}
       <div className="flex flex-wrap gap-2">
-        {["w", "h", "q", "8", "16", "32"].map((dur) => {
+        {["w", "h", "q", "8", "16", "32"].map((dur, index) => {
           const labels: Record<string, string> = {
             w: "w",
             h: "h",
             q: "q",
             "8": "♪",
-            "16": "𝅘𝅥𝅯",
-            "32": "𝅘𝅥𝅰",
+            "16": "𝅘𝅥𝅯",
+            "32": "𝅘𝅥𝅰",
           };
           return (
             <button
               key={dur}
+              title={`Atajo: Tecla ${index + 1}`}
               onClick={() => props.setDurationAndEdit(dur)}
               className={`w-9 h-9 flex items-center justify-center rounded-lg border-2 font-bold shrink-0 ${props.currentDuration === dur ? "border-blue-500 bg-blue-50 text-blue-700" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
             >
@@ -211,12 +212,14 @@ export const ControlPanel = (props: ControlPanelProps) => {
         })}
 
         <button
+          title="Atajo: Tecla D"
           onClick={props.toggleDot}
           className={`w-9 h-9 flex items-center justify-center rounded-lg border-2 font-bold shrink-0 ${props.isDotActive ? "border-blue-500 bg-blue-50 text-blue-700" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
         >
           •
         </button>
         <button
+          title="Atajo: Tecla T"
           onClick={props.toggleTie}
           className={`w-9 h-9 flex items-center justify-center rounded-lg border-2 font-bold shrink-0 ${props.isTieActive ? "border-green-500 bg-green-50 text-green-700" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
         >
@@ -233,18 +236,21 @@ export const ControlPanel = (props: ControlPanelProps) => {
       {/* 4. ALTERACIONES, ACORDE Y REPETIR */}
       <div className="flex flex-wrap gap-2 pt-2 border-t border-gray-200">
         <button
+          title="Atajo: Tecla S"
           onClick={() => props.toggleAccidental("#")}
           className={`w-9 h-9 flex items-center justify-center rounded-lg border-2 font-bold shrink-0 ${props.accidental === "#" ? "border-purple-500 bg-purple-50 text-purple-700" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
         >
           ♯
         </button>
         <button
+          title="Atajo: Tecla F"
           onClick={() => props.toggleAccidental("b")}
           className={`w-9 h-9 flex items-center justify-center rounded-lg border-2 font-bold shrink-0 ${props.accidental === "b" ? "border-purple-500 bg-purple-50 text-purple-700" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
         >
           ♭
         </button>
         <button
+          title="Atajo: Tecla N"
           onClick={() => props.toggleAccidental("n")}
           className={`w-9 h-9 flex items-center justify-center rounded-lg border-2 font-bold shrink-0 ${props.accidental === "n" ? "border-purple-500 bg-purple-50 text-purple-700" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
         >
@@ -252,6 +258,7 @@ export const ControlPanel = (props: ControlPanelProps) => {
         </button>
 
         <button
+          title="Atajo: Mantén pulsado Shift o A"
           onClick={() => props.setIsChordMode(!props.isChordMode)}
           className={`px-3 h-9 flex items-center justify-center rounded-lg border-2 font-bold text-xs shrink-0 ${props.isChordMode ? "border-orange-500 bg-orange-50 text-orange-700" : "bg-white text-gray-600 border-gray-200 hover:bg-gray-50"}`}
         >
