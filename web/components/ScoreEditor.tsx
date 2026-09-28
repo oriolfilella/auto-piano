@@ -1,13 +1,14 @@
 // src/components/ScoreEditor.tsx
 "use client";
+import { useState } from "react";
 import VexFlowRenderer from "./VexFlowRender";
 import { ControlPanel } from "./ControlPanel";
 import Auth from "./Auth";
 
 // Import UI Components
-import { Header } from './editor/Header';
-import { NoteInputPanel } from './editor/NoteInputPanel';
-import { PlaybackPanel } from './editor/PlaybackPanel';
+import { Header } from "./editor/Header";
+import { NoteInputPanel } from "./editor/NoteInputPanel";
+import { PlaybackPanel } from "./editor/PlaybackPanel";
 
 // Import Custom Hooks
 import { useAuth } from "../hooks/useAuth";
@@ -18,6 +19,8 @@ import { useAudioPlayback } from "../hooks/useAudioPlayback";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 
 export default function ScoreEditor() {
+  const [isHeaderVisible, setIsHeaderVisible] = useState(true);
+
   // 1. Authentication Hook
   const { session, isGuest, setIsGuest, loading } = useAuth();
 
@@ -33,7 +36,10 @@ export default function ScoreEditor() {
   });
 
   // 4. Hardware Connection and Playback Hook
-  const hardware = useHardware({ notesList: score.notesList, keySignature: score.keySignature });
+  const hardware = useHardware({
+    notesList: score.notesList,
+    keySignature: score.keySignature,
+  });
 
   // 5. PC Audio Playback Hook
   const audio = useAudioPlayback({
@@ -83,6 +89,8 @@ export default function ScoreEditor() {
         connectionType={hardware.connectionType}
         handleConnectUSB={hardware.handleConnectUSB}
         handleConnectBLE={hardware.handleConnectBLE}
+        isHeaderVisible={isHeaderVisible}
+        toggleHeaderVisibility={() => setIsHeaderVisible((prev) => !prev)}
       />
 
       <div className="flex flex-col lg:flex-row gap-4 items-start w-full">
@@ -102,7 +110,9 @@ export default function ScoreEditor() {
             isTieActive={editor.isTieActive}
             toggleTie={() => editor.setIsTieActive(!editor.isTieActive)}
             isTripletActive={editor.isTripletActive}
-            toggleTriplet={() => editor.setIsTripletActive(!editor.isTripletActive)}
+            toggleTriplet={() =>
+              editor.setIsTripletActive(!editor.isTripletActive)
+            }
             accidental={editor.accidental}
             toggleAccidental={editor.toggleAccidental}
             isChordMode={editor.isChordMode}

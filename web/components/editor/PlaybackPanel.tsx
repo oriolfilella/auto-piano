@@ -1,12 +1,12 @@
 // components/editor/PlaybackPanel.tsx
-import React from 'react';
+import React from "react";
 
 interface PlaybackPanelProps {
   isPlayingPC: boolean;
   handlePlayPC: () => void;
   isPlaying: boolean;
   handlePlay: () => void;
-  connectionType: 'none' | 'usb' | 'ble';
+  connectionType: "none" | "usb" | "ble";
   addRest: () => void;
   undoLastNote: () => void;
   clearScore: () => void;
@@ -28,7 +28,7 @@ export function PlaybackPanel({
         onClick={handlePlayPC}
         className={`flex-1 min-w-[140px] py-2.5 font-bold rounded-xl shadow transition flex items-center justify-center gap-2 text-sm ${isPlayingPC ? "bg-orange-100 text-orange-700 border-2 border-orange-500 hover:bg-orange-200" : "bg-blue-600 text-white hover:bg-blue-700"}`}
       >
-        {isPlayingPC ? "⏹️ Detener Audio" : "🎧 Escuchar en PC"}
+        {isPlayingPC ? "⏹️ Detener Audio" : "🎧 Escuchar Audio"}
       </button>
       <button
         onClick={handlePlay}
@@ -37,10 +37,16 @@ export function PlaybackPanel({
       >
         {isPlaying ? "⏹️ Detener Reproducción" : "▶️ Reproducir en Piano"}
       </button>
-      <button onClick={addRest} className="flex-1 min-w-[100px] py-2.5 bg-gray-800 text-white font-bold rounded-xl shadow hover:bg-gray-900 transition flex items-center justify-center gap-2 text-sm">
+      <button
+        onClick={addRest}
+        className="flex-1 min-w-[100px] py-2.5 bg-gray-800 text-white font-bold rounded-xl shadow hover:bg-gray-900 transition flex items-center justify-center gap-2 text-sm"
+      >
         𝄽 Silencio
       </button>
-      <button onClick={undoLastNote} className="flex-1 min-w-[100px] py-2.5 bg-yellow-500 text-white font-bold rounded-xl shadow hover:bg-yellow-600 transition flex items-center justify-center gap-2 text-sm">
+      <button
+        onClick={undoLastNote}
+        className="flex-1 min-w-[100px] py-2.5 bg-yellow-500 text-white font-bold rounded-xl shadow hover:bg-yellow-600 transition flex items-center justify-center gap-2 text-sm"
+      >
         ↩️ Deshacer
       </button>
       <button
